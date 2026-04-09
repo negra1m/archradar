@@ -1,0 +1,43 @@
+{
+  "name": "@fewcompany/archradar",
+  "version": "1.1.0",
+  "description": "Architectural Intelligence Engine for modern frontend teams — by Few Company",
+  "bin": {
+    "archradar": "dist/bin/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node bin/cli.ts",
+    "start": "node dist/bin/cli.js"
+  },
+  "keywords": [
+    "architecture",
+    "frontend",
+    "cli",
+    "analysis",
+    "typescript"
+  ],
+  "author": "Few Company",
+  "license": "AGPL-3.0",
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "chalk": "^5.3.0",
+    "ora": "^8.0.0",
+    "boxen": "^7.1.1",
+    "fast-glob": "^3.3.2",
+    "ts-morph": "^22.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0"
+  },
+  "watermark": "​‍​​​‍‍​​‍‍​​‍​‍​‍‍​‍​​‍​‍‍‍​‍​​​‍‍​‍‍‍‍​​‍​​​​​​‍‍‍​​​​​‍‍​‍‍‍‍​‍‍‍​​‍​​​‍​​​​​​​‍​‍‍​‍​​‍​​​​​​‍​​​‍‍​​‍‍​​‍​‍​‍‍‍​‍‍‍​​‍​​​​​​‍​​​​‍‍​‍‍​‍‍‍‍​‍‍​‍‍​‍​‍‍‍​​​​​‍‍​​​​‍​‍‍​‍‍‍​​‍‍‍‍​​‍​​‍​​​​​​‍‍‍‍‍​​​​‍​​​​​​‍​‍​‍‍​​‍‍​‍​​‍​‍‍​‍‍‍​​‍‍​‍​​‍"
+}
