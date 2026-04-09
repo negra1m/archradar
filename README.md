@@ -1,7 +1,7 @@
 # archradar
 
 <p align="center">
-  <img src="./assets/archradar-cover.png" alt="ArchRadar cover" width="100%" />
+  <img src="https://raw.githubusercontent.com/negra1m/archradar/main/assets/archradar-cover.png" alt="ArchRadar cover" width="100%" />
 </p>
 
 <p align="center">
@@ -100,7 +100,7 @@ Ele aponta o que corrigir primeiro.
 ## Preview
 
 <p align="center">
-  <img src="./assets/demo.gif" alt="ArchRadar demo" width="100%" />
+  <img src="https://raw.githubusercontent.com/negra1m/archradar/main/assets/demo.gif" alt="ArchRadar demo" width="100%" />
 </p>
 
 ---
