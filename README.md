@@ -7,6 +7,14 @@
 
 ---
 
+## Preview
+
+<p align="center">
+  <img src="./assets/demo.gif" alt="ArchRadar demo" width="100%" />
+</p>
+
+---
+
 ## Instalação
 
 ```bash
