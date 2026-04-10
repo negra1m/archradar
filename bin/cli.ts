@@ -14,7 +14,7 @@ const ARCHRADAR_API = process.env.ARCHRADAR_API_URL ?? 'https://api.archradar.fe
 
 async function sendToApi(token: string, payload: string): Promise<void> {
   try {
-    const res = await fetch(`${ARCHRADAR_API}/scan/premium`, {
+    const res = await fetch(`${ARCHRADAR_API}/api/v1/scan/premium`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
