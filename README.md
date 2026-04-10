@@ -10,7 +10,7 @@
 
 <p align="center">
   Escaneie seu projeto. Entenda sua arquitetura. Corrija o que importa.<br />
-  Por <a href="https://fewcompany.com">Few Company</a>
+  Criado pela <a href="https://fewcompany.com">Few Company</a> · Mantido pela comunidade
 </p>
 
 <p align="center">
@@ -188,6 +188,12 @@ archradar --help         # Ajuda
 ## Requisitos
 
 - Node.js >= 20.0.0
+
+---
+
+## Comunidade
+
+archradar é mantido pelos [**Few Soldiers**](https://github.com/Few-Soldiers), uma comunidade aberta de desenvolvedores. Eles estão trabalhando num motor de análise mais enxuto pro pacote premium do archradar — a API atual já entrega tudo o que prometemos, e o trabalho da comunidade refina e expande daqui pra frente.
 
 ---
 
