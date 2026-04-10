@@ -1,0 +1,20 @@
+# FEW-AI-SERIAL schema — Archradar Scan Payload
+# Patent: BR 10 2026 008196 5
+@few v1.0 domain:archradar
+FWK framework str
+VRS version str
+TFL total_files num
+AVG avg_lines num
+SCR health_score num
+GRD grade str
+RSK risk_level str LOW>low MEDIUM>med HIGH>high CRITICAL>crit
+CPL avg_coupling num
+CMX avg_complexity num
+CRC circular_deps num
+CRT critical_files num
+TST timestamp num :ms
+→ hotspot
+FIL file str
+FNC function str
+SCX score num
+// 80
