@@ -3,7 +3,14 @@ import path from 'path';
 import { ComplexityResult } from '../../types/index.js';
 import { topK } from '../../utils/topK.js';
 
-const COMPLEXITY_THRESHOLD = 10;
+/**
+ * Single source of truth for the "complexity hotspot" threshold.
+ * Functions with cyclomatic complexity >= this value are listed as hotspots.
+ *
+ * 10 is the classic McCabe cutoff for "complex" functions. Same constant
+ * is imported by healthScore.ts so scoring and detection stay aligned.
+ */
+export const COMPLEXITY_THRESHOLD = 10;
 
 const COMPLEXITY_NODES = new Set([
   SyntaxKind.IfStatement,
@@ -49,6 +56,7 @@ export async function analyzeComplexity(projectPath: string): Promise<Complexity
   ]);
 
   const hotspots: ComplexityResult['hotspots'] = [];
+  const allComplexities: number[] = [];
   let totalComplexity = 0;
   let functionCount = 0;
 
@@ -71,6 +79,7 @@ export async function analyzeComplexity(projectPath: string): Promise<Complexity
       const complexity = countComplexity(fn as Node);
       totalComplexity += complexity;
       functionCount++;
+      allComplexities.push(complexity);
 
       if (complexity >= COMPLEXITY_THRESHOLD) {
         hotspots.push({
@@ -85,8 +94,19 @@ export async function analyzeComplexity(projectPath: string): Promise<Complexity
   const top10 = topK(hotspots, 10, (h) => h.complexity);
   top10.sort((a, b) => b.complexity - a.complexity);
 
+  // p95 gives a truer picture of the codebase's cyclomatic load than the
+  // average alone, which is pulled down by trivial functions. Reported in
+  // the result so the display can show avg AND p95 side-by-side.
+  let p95Complexity = 0;
+  if (allComplexities.length > 0) {
+    allComplexities.sort((a, b) => a - b);
+    const p95Idx = Math.floor(allComplexities.length * 0.95);
+    p95Complexity = allComplexities[Math.min(p95Idx, allComplexities.length - 1)];
+  }
+
   return {
     avgComplexity: functionCount > 0 ? Math.round(totalComplexity / functionCount) : 0,
+    p95Complexity,
     hotspots: top10,
   };
 }
