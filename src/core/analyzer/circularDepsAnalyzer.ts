@@ -80,8 +80,16 @@ export async function analyzeCircularDeps(projectPath: string): Promise<Circular
   const graph = buildGraph(projectPath, project);
   const cycles = detectCycles(graph);
 
+  // Convert Map<string, Set<string>> to Record<string, string[]> for serialization.
+  const graphRecord: Record<string, string[]> = {};
+  for (const [file, deps] of graph.entries()) {
+    graphRecord[file] = [...deps];
+  }
+
   return {
     hasCycles: cycles.length > 0,
     cycles: cycles.slice(0, 10),
+    allCycles: cycles,
+    graph: graphRecord,
   };
 }

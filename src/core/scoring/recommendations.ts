@@ -1,5 +1,6 @@
 import { ScanResult, AnalysisResult } from '../../types/index.js';
 import { topK } from '../../utils/topK.js';
+import { maskPath } from '../../utils/pathMask.js';
 
 interface Recommendation {
   priority: number;
@@ -55,14 +56,15 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
     const worst = analysis.complexity.hotspots[0];
     recs.push({
       priority: 1,
-      message: `High cyclomatic complexity in "${worst.function}" (${worst.file}, score ${worst.complexity}). Extract smaller functions.`,
+      message: `High cyclomatic complexity in "${worst.function}" (${maskPath(worst.file)}, score ${worst.complexity}). Extract smaller functions.`,
     });
   }
 
   if (analysis.circularDeps.hasCycles) {
+    const total = analysis.circularDeps.allCycles.length;
     recs.push({
       priority: 1,
-      message: `${analysis.circularDeps.cycles.length} circular dependency(ies) detected. Restructure imports to break the cycles.`,
+      message: `${total} circular dependency(ies) detected. Restructure imports to break the cycles.`,
     });
   }
 

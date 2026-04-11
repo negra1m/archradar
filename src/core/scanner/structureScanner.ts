@@ -31,26 +31,43 @@ export async function scanStructure(projectPath: string): Promise<StructureScanR
   const folders = await listDirs(projectPath, 0, 3);
   const topLevel = folders.filter((f) => !f.includes('/'));
 
-  let patternName = 'Unrecognized';
-  let hasRecognizedPattern = false;
-
+  // Find the best-fitting pattern by match ratio (covered required folders
+  // over total required). This replaces the old all-or-nothing matching
+  // where a 4-of-5 match was indistinguishable from a 2-of-8 match.
+  let bestMatch: { name: string; ratio: number } | null = null;
   for (const { name, required } of KNOWN_PATTERNS) {
-    if (required.every((r) => topLevel.includes(r))) {
-      patternName = name;
-      hasRecognizedPattern = true;
-      break;
+    const hits = required.filter((r) => topLevel.includes(r)).length;
+    const ratio = hits / required.length;
+    if (ratio > 0 && (!bestMatch || ratio > bestMatch.ratio)) {
+      bestMatch = { name, ratio };
     }
   }
 
-  // Partial match — at least 2 of common dirs
-  if (!hasRecognizedPattern) {
+  let patternName = 'Unrecognized';
+  let hasRecognizedPattern = false;
+  let matchConfidence = 0;
+
+  if (bestMatch && bestMatch.ratio >= 1) {
+    // Full match — the pattern is clearly in use.
+    patternName = bestMatch.name;
+    hasRecognizedPattern = true;
+    matchConfidence = 100;
+  } else if (bestMatch && bestMatch.ratio >= 0.5) {
+    // Partial match — pattern is recognizable but not fully adopted.
+    patternName = `${bestMatch.name} (partial)`;
+    hasRecognizedPattern = true;
+    matchConfidence = Math.round(bestMatch.ratio * 100);
+  } else {
+    // No strong pattern — fall back to the "some common folders" heuristic
+    // so projects using ad-hoc conventions aren't penalized as "unstructured".
     const commonDirs = ['components', 'pages', 'hooks', 'utils', 'services', 'store', 'lib', 'api', 'app'];
     const found = topLevel.filter((f) => commonDirs.includes(f));
     if (found.length >= 2) {
       hasRecognizedPattern = true;
-      patternName = 'Partial structure';
+      patternName = 'Ad-hoc structure';
+      matchConfidence = Math.round((found.length / commonDirs.length) * 100);
     }
   }
 
-  return { folders: topLevel, hasRecognizedPattern, patternName };
+  return { folders: topLevel, hasRecognizedPattern, patternName, matchConfidence };
 }
