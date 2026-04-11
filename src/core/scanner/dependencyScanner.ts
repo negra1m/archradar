@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { DependencyScanResult } from '../../types/index.js';
+import { DependencyScanResult, DependencyInfo } from '../../types/index.js';
 
 // Groups of libs that serve the same purpose — having 2+ is suspicious
 const OVERLAP_GROUPS: Record<string, string[]> = {
@@ -35,12 +35,26 @@ export async function scanDependencies(projectPath: string): Promise<DependencyS
 
     const heavyDeps = depKeys.filter((d) => HEAVY_DEPS.includes(d));
 
+    const all: DependencyInfo[] = [
+      ...Object.entries(deps).map(([name, version]) => ({
+        name,
+        version: String(version).replace(/^[\^~]/, ''),
+        category: 'runtime' as const,
+      })),
+      ...Object.entries(devDeps).map(([name, version]) => ({
+        name,
+        version: String(version).replace(/^[\^~]/, ''),
+        category: 'dev' as const,
+      })),
+    ];
+
     return {
       totalDeps: depKeys.length,
       suspiciousDeps,
       heavyDeps,
+      all,
     };
   } catch {
-    return { totalDeps: 0, suspiciousDeps: [], heavyDeps: [] };
+    return { totalDeps: 0, suspiciousDeps: [], heavyDeps: [], all: [] };
   }
 }
