@@ -4,9 +4,13 @@ import {
   HealthScore,
   Grade,
   ScoreBreakdown,
+  FileInfo,
 } from '../../types/index.js';
 import { HIGH_COUPLING_THRESHOLD } from '../analyzer/couplingAnalyzer.js';
 import { COMPLEXITY_THRESHOLD } from '../analyzer/complexityAnalyzer.js';
+import { techDebtPenalty } from '../analyzer/techDebtAnalyzer.js';
+import { dataFlowPenalty } from '../analyzer/dataFlowAnalyzer.js';
+import { getThresholdsForFramework } from '../../utils/calibrationLoader.js';
 
 // ===== Continuous scoring curves =====
 //
@@ -19,6 +23,8 @@ import { COMPLEXITY_THRESHOLD } from '../analyzer/complexityAnalyzer.js';
 //                                   scoring never contradict each other.
 //   • dependencies                — capped penalty so 5 suspicious deps isn't
 //                                   indistinguishable from 50.
+//   • worstFile (v1.4 Sprint 2)   — dedicated penalty for the single worst
+//                                   file, to combat averaging dilution.
 
 // File size — 80 lines = 100, 500 = 20, smooth linear between.
 function scoreFileSize(avgLines: number): number {
@@ -50,42 +56,211 @@ function scoreDependencies(suspicious: number, heavy: number): number {
   return 100 - penalty;
 }
 
-// Coupling — anchored to HIGH_COUPLING_THRESHOLD. Smooth curve:
+// Coupling — anchored to the per-framework HIGH_COUPLING threshold derived
+// from the calibration .fewserial (p90 of avg coupling for that framework).
+// Falls back to the legacy HIGH_COUPLING_THRESHOLD constant if no community
+// data exists for the framework.
+//
+// Smooth curve:
 //   ≤ THRESHOLD/3  → 100 (well below the tail)
 //   = THRESHOLD    → ~55 (borderline)
 //   ≥ THRESHOLD*2  → 20  (definitive outlier)
-function scoreCoupling(avgCoupling: number): number {
-  const low = HIGH_COUPLING_THRESHOLD / 3; // 4 imports → 100
-  const high = HIGH_COUPLING_THRESHOLD * 2; // 24 imports → 20
+function scoreCoupling(avgCoupling: number, framework: string): number {
+  const fwk = getThresholdsForFramework(framework);
+  const threshold = fwk.highCoupling || HIGH_COUPLING_THRESHOLD;
+  const low = threshold / 3;
+  const high = threshold * 2;
   if (avgCoupling <= low) return 100;
   if (avgCoupling >= high) return 20;
   const t = (avgCoupling - low) / (high - low);
   return Math.round(100 - t * 80);
 }
 
-// Complexity — blends avg and hotspot density into one score, both anchored
-// to COMPLEXITY_THRESHOLD. A file at threshold=10 sits at the boundary and
-// a file well above it drives the score toward the floor.
-function scoreComplexity(avgComplexity: number, hotspotsCount: number): number {
-  // Avg component: ≤ THRESHOLD/3 → 100, ≥ THRESHOLD → 40, linear between.
-  const low = COMPLEXITY_THRESHOLD / 3; // ~3.3 → 100
-  const high = COMPLEXITY_THRESHOLD;     // 10 → 40
-  let avgScore: number;
-  if (avgComplexity <= low) avgScore = 100;
-  else if (avgComplexity >= high) avgScore = 40;
-  else {
-    const t = (avgComplexity - low) / (high - low);
-    avgScore = 100 - t * 60;
+// Component-level score for a single complexity value (cognitive).
+//
+// v1.4 Sprint 3 — Now scoring against cognitive complexity, which is
+// typically 1.5-2x cyclomatic for real code. v1.4 Sprint 8 — anchor is
+// per-framework: derived from p90 of cognitive complexity in real OSS
+// projects of that framework, with the legacy COMPLEXITY_THRESHOLD as
+// the fallback.
+//
+//   ≤ threshold/2  → 100  (simple function)
+//   threshold      → 60   (at p90 — start of concern)
+//   threshold*3    → 20   (floor — material outlier)
+function scoreOneComplexityValue(value: number, threshold: number): number {
+  const low = Math.max(5, threshold / 2);
+  const mid = threshold;
+  const high = threshold * 3;
+  if (value <= low) return 100;
+  if (value >= high) return 20;
+  if (value <= mid) {
+    const t = (value - low) / (mid - low);
+    return 100 - t * 40;
   }
-
-  // Hotspot density penalty: 0 hotspots = no penalty, each hotspot -5
-  // up to a cap of -40. Keeps the floor at 0.
-  const hotspotPenalty = Math.min(40, hotspotsCount * 5);
-
-  return Math.max(0, Math.round(avgScore - hotspotPenalty));
+  const t = (value - mid) / (high - mid);
+  return 60 - t * 40;
 }
 
-function gradeFromScore(score: number): Grade {
+// Complexity — blends avg (meio da distribuição) with p95 (cauda) so that the
+// score responds when either the typical function OR the worst-5% of functions
+// gets worse. p95 carries more weight (60%) because the worst files are what
+// actually cause pain during refactors. Hotspot count stays as an additional
+// density penalty — v1.4 Sprint 2 #11 removes the hard -40 cap and uses an
+// asymptotic curve so each new hotspot still hurts a little.
+function scoreComplexity(
+  avgComplexity: number,
+  p95Complexity: number,
+  hotspotsCount: number,
+  framework: string
+): number {
+  const fwk = getThresholdsForFramework(framework);
+  const threshold = fwk.complexity || COMPLEXITY_THRESHOLD;
+  const avgScore = scoreOneComplexityValue(avgComplexity, threshold);
+  const p95Score = scoreOneComplexityValue(p95Complexity, threshold);
+  // 40% avg + 60% p95 — tail-weighted intentionally.
+  const blended = avgScore * 0.4 + p95Score * 0.6;
+
+  // v1.4 Sprint 2 #11 — Hotspot density: asymptotic to 40.
+  //   0 hotspots → 0 penalty
+  //   5 hotspots → ~17.5
+  //   10 hotspots → ~28.7
+  //   20 hotspots → ~36.7
+  //   50 hotspots → ~39.9
+  // Every additional hotspot moves the needle, but diminishing returns keep
+  // the floor around 40 so complexity doesn't bottom out to 0 from density
+  // alone.
+  const hotspotPenalty = 40 * (1 - Math.exp(-hotspotsCount / 8));
+
+  return Math.max(0, Math.round(blended - hotspotPenalty));
+}
+
+// v1.4 Sprint 4 #8 — Test coverage proxy.
+//
+// This is NOT real coverage — archradar doesn't run your tests. It counts
+// files matching `*.test.*`, `*.spec.*`, `__tests__/` and produces a ratio
+// of test files to source files. That ratio is a cultural indicator: a
+// project with zero test files is making a very different statement about
+// quality than a project with 0.5 ratio (1 test per 2 source files).
+//
+// The curve:
+//   ratio 0     → 20 (zero test files is a strong signal)
+//   ratio 0.1   → 40
+//   ratio 0.3   → 80 (mature mainstream)
+//   ratio 0.5+  → 100 (exceptional)
+//
+// Projects with fewer than 20 source files are too small to judge — we
+// return null so the weight is redistributed to the other components.
+//
+// See DESIGN.md for the honest limitation: this is a proxy, not coverage.
+function scoreTests(testCoverageRatio: number, sourceFileCount: number): number | null {
+  if (sourceFileCount < 20) return null;
+  if (testCoverageRatio <= 0) return 20;
+  if (testCoverageRatio >= 0.5) return 100;
+  if (testCoverageRatio < 0.1) {
+    // 0 → 20, 0.1 → 40
+    const t = testCoverageRatio / 0.1;
+    return Math.round(20 + t * 20);
+  }
+  if (testCoverageRatio < 0.3) {
+    // 0.1 → 40, 0.3 → 80
+    const t = (testCoverageRatio - 0.1) / 0.2;
+    return Math.round(40 + t * 40);
+  }
+  // 0.3 → 80, 0.5 → 100
+  const t = (testCoverageRatio - 0.3) / 0.2;
+  return Math.round(80 + t * 20);
+}
+
+// v1.4 Sprint 2 #1 + Sprint 5 #13 — Worst-file penalty.
+//
+// Averaging dilutes individual catastrophic files: a 214-file project with
+// ONE admin/page.tsx at 1141 lines scores about the same as a healthy codebase
+// because the avg is dragged down only slightly. This component scores the
+// PROJECT as a function of its SINGLE worst outlier — so one 1141-line file
+// can no longer hide inside an OK average.
+//
+// v1.4 Sprint 5 adds MAX FUNCTION lines as a third axis. A 200-line file
+// with a 180-line function is different from a 200-line file with 10
+// focused 20-line functions.
+//
+// Formula anchors:
+//   worst file lines = 200     → 100 (completely fine)
+//   worst file lines = 500     → 60
+//   worst file lines = 1000    → 30
+//   worst file lines >= 1500   → 20 (floor)
+//
+//   worst function lines = 50  → 100
+//   worst function lines = 150 → 60
+//   worst function lines = 300 → 30
+//   worst function lines >= 500 → 20 (floor)
+//
+//   worst cognitive complexity = 5   → 100
+//   worst cognitive complexity = 30  → 60
+//   worst cognitive complexity = 100 → 20 (floor)
+//
+// We take the WORST of all three — any one catastrophe dominates the review.
+function scoreWorstFile(
+  criticalFiles: FileInfo[],
+  hotspots: Array<{ file: string; function: string; complexity: number; lines: number }>
+): number {
+  // Empty project → no worst file, default 100.
+  if (criticalFiles.length === 0 && hotspots.length === 0) return 100;
+
+  // Largest file by line count.
+  const worstFileLines = criticalFiles.reduce((max, f) => Math.max(max, f.lines), 0);
+  // Largest function by complexity.
+  const worstComplexity = hotspots.reduce((max, h) => Math.max(max, h.complexity), 0);
+  // Largest function by line count.
+  const worstFnLines = hotspots.reduce((max, h) => Math.max(max, h.lines), 0);
+
+  // File-lines subscore: smooth linear decay.
+  let fileLinesScore = 100;
+  if (worstFileLines >= 1500) fileLinesScore = 20;
+  else if (worstFileLines > 200) {
+    const t = (worstFileLines - 200) / (1500 - 200);
+    fileLinesScore = Math.round(100 - t * 80);
+  }
+
+  // Function-lines subscore.
+  let fnLinesScore = 100;
+  if (worstFnLines >= 500) fnLinesScore = 20;
+  else if (worstFnLines > 50) {
+    const t = (worstFnLines - 50) / (500 - 50);
+    fnLinesScore = Math.round(100 - t * 80);
+  }
+
+  // Complexity subscore.
+  let complexityScore = 100;
+  if (worstComplexity >= 100) complexityScore = 20;
+  else if (worstComplexity > 5) {
+    const t = (worstComplexity - 5) / (100 - 5);
+    complexityScore = Math.round(100 - t * 80);
+  }
+
+  // Return the WORST of the three — one catastrophe is enough.
+  return Math.min(fileLinesScore, fnLinesScore, complexityScore);
+}
+
+// v1.4 Sprint 9 — Grade thresholds.
+//
+// Two paths:
+//   1. Per-framework quantile thresholds from the calibration .fewserial,
+//      where A = top 10% of OSS projects in that framework, B = top 50%,
+//      C = top 75%, D = top 90%, F = bottom 10%. This makes grades
+//      directly comparable to "where do I sit among real projects".
+//   2. Hardcoded fallback when no calibration data exists for the framework
+//      (or no GRA/GRB/GRC/GRD fields in the .fewserial yet).
+function gradeFromScore(score: number, framework: string): Grade {
+  const fwk = getThresholdsForFramework(framework);
+  const g = fwk.gradeThresholds;
+  if (g) {
+    if (score >= g.A) return 'A';
+    if (score >= g.B) return 'B';
+    if (score >= g.C) return 'C';
+    if (score >= g.D) return 'D';
+    return 'F';
+  }
+  // Hardcoded fallback (v1.3 thresholds).
   if (score >= 85) return 'A';
   if (score >= 70) return 'B';
   if (score >= 55) return 'C';
@@ -93,22 +268,23 @@ function gradeFromScore(score: number): Grade {
   return 'F';
 }
 
-// Small-project bias mitigation.
+// v1.4 Sprint 2 #10 — Continuous size ceiling.
 //
-// A 10-file project cannot demonstrate real architectural discipline — it
-// simply has too little surface area to expose problems. Cap the final score
-// so "twitter-bio-in-12-files" can't score the same as a 5000-file SaaS.
-// These caps kick in AFTER the weighted sum, as an upper bound only.
+// Previously: 4 discrete steps (65/75/85/100) with cliffs at 10/20/50 files.
+// A project going from 49 → 50 files jumped from ceiling 85 to 100. Cliff.
 //
-// totalFiles < 10  → cap 65 (D/C max)
-// totalFiles < 20  → cap 75 (B-)
-// totalFiles < 50  → cap 85 (A-)
-// totalFiles >= 50 → no cap
+// Now: smooth log10 curve. Ceiling grows with the log of the file count so
+// small projects are capped but each file actually moves the ceiling.
+//
+//   1 file    → 60  (nothing to say about architecture yet)
+//   10 files  → 80
+//   100 files → 100
+//   1000+     → 100 (cap)
+//
+// Formula: 60 + 40 * min(1, log10(max(1, files)) / 2)
 function sizeCeiling(totalFiles: number): number {
-  if (totalFiles < 10) return 65;
-  if (totalFiles < 20) return 75;
-  if (totalFiles < 50) return 85;
-  return 100;
+  const log = Math.log10(Math.max(1, totalFiles));
+  return Math.round(60 + 40 * Math.min(1, log / 2));
 }
 
 export function calculateHealthScore(
@@ -119,34 +295,72 @@ export function calculateHealthScore(
   const criticalScore   = scoreCriticalFiles(scan.files.criticalFiles.length, scan.files.totalFiles);
   const structureScore  = scoreStructure(scan.structure.hasRecognizedPattern, scan.structure.folders.length);
   const depsScore       = scoreDependencies(scan.dependencies.suspiciousDeps.length, scan.dependencies.heavyDeps.length);
-  const couplingScore   = scoreCoupling(analysis.coupling.avgCoupling);
-  const complexityScore = scoreComplexity(analysis.complexity.avgComplexity, analysis.complexity.hotspots.length);
+  const fwkName = scan.framework.framework;
+  const couplingScore   = scoreCoupling(analysis.coupling.avgCoupling, fwkName);
+  const complexityScore = scoreComplexity(
+    analysis.complexity.avgComplexity,
+    analysis.complexity.p95Complexity,
+    analysis.complexity.hotspots.length,
+    fwkName
+  );
+  const worstFileScore  = scoreWorstFile(scan.files.criticalFiles, analysis.complexity.hotspots);
   const modScore        = analysis.modularity.modularityScore; // may be null
+  const testsScore      = scoreTests(scan.files.testCoverageRatio, scan.files.sourceFileCount);
 
-  // Weighted sum. When modularity is not applicable (backend-only project),
-  // its 10% weight is redistributed proportionally across the other six
-  // components so the total still sums to 100.
+  // v1.4 Sprint 2 #2 — Rebalanced weights.
+  //
+  // Old v1.3: every component at 15%, modularity at 10%. Problem: structure
+  // and dependencies were practically free points for any modern framework
+  // app — 30% of the score was guaranteed regardless of code quality.
+  //
+  // New v1.4: complexity and worstFile are promoted, structure/deps reduced
+  // to reflect how much signal each actually carries. Sprint 4 adds a
+  // "tests" component (placeholder here — redistributed when null) with
+  // another 10%.
+  //
+  //   fileSize       10%
+  //   criticalFiles  15%
+  //   structure       5%
+  //   dependencies   10%
+  //   coupling       15%
+  //   complexity     20%
+  //   worstFile      10%
+  //   modularity     10% (nullable — redistributed if project has no UI/hook files)
+  //   tests          10% (nullable — redistributed if <20 source files) [Sprint 4]
+  //
+  // Total: 105%. When modularity or tests is null, its weight is redistributed
+  // proportionally across the remaining components via the totalWeight divide.
   const components: Array<{ value: number; weight: number }> = [
-    { value: fileSizeScore,   weight: 0.15 },
+    { value: fileSizeScore,   weight: 0.10 },
     { value: criticalScore,   weight: 0.15 },
-    { value: structureScore,  weight: 0.15 },
-    { value: depsScore,       weight: 0.15 },
+    { value: structureScore,  weight: 0.05 },
+    { value: depsScore,       weight: 0.10 },
     { value: couplingScore,   weight: 0.15 },
-    { value: complexityScore, weight: 0.15 },
+    { value: complexityScore, weight: 0.20 },
+    { value: worstFileScore,  weight: 0.10 },
   ];
   if (modScore !== null) {
     components.push({ value: modScore, weight: 0.10 });
+  }
+  if (testsScore !== null) {
+    components.push({ value: testsScore, weight: 0.10 });
   }
   const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
   const weightedSum = components.reduce((sum, c) => sum + c.value * c.weight, 0);
   const rawScore = Math.round(weightedSum / totalWeight);
 
+  // v1.4 Sprint 6 #12 — Tech debt penalty (up to -10pts).
+  const debtPenalty = techDebtPenalty(analysis.techDebt);
+  // v1.4 Sprint 11 #3 — Data flow penalty (up to -20pts).
+  const flowPenalty = dataFlowPenalty(analysis.dataFlow);
+  const afterPenalty = Math.max(0, rawScore - debtPenalty - flowPenalty);
+
   // Apply size ceiling: tiny projects can't earn the top grades.
   const ceiling = sizeCeiling(scan.files.totalFiles);
-  const score = Math.min(rawScore, ceiling);
+  const score = Math.min(afterPenalty, ceiling);
 
   return {
-    health: { score, grade: gradeFromScore(score) },
+    health: { score, grade: gradeFromScore(score, fwkName) },
     breakdown: {
       fileSize: fileSizeScore,
       criticalFiles: criticalScore,
@@ -154,7 +368,9 @@ export function calculateHealthScore(
       dependencies: depsScore,
       coupling: couplingScore,
       complexity: complexityScore,
+      worstFile: worstFileScore,
       modularity: modScore,
+      tests: testsScore,
     },
   };
 }

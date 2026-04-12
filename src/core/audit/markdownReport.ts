@@ -79,6 +79,16 @@ export interface AuditApiResponse {
     severity: string;
     message: string;
   }>;
+  /** v1.4 Sprint 10 #16 — real bundle sizes from BundlePhobia. Optional — may be empty if API was unreachable. */
+  bundleFindings?: Array<{
+    name: string;
+    version: string;
+    gzipKB: number;
+    rawKB: number;
+    dependencyCount: number;
+    severity: 'info' | 'warning' | 'critical';
+    note: string;
+  }>;
   insights: string[];
 }
 
@@ -208,13 +218,28 @@ export function generateMarkdownReport(
   for (const b of audit.benchmark) {
     // percentile always means "your position in the distribution".
     // For higher-better: high percentile = good. For lower-better: high percentile = bad.
-    const isGood =
-      b.interpretation === 'higher-better' ? b.percentile >= 50 : b.percentile <= 50;
-    const status = isGood ? '✓ better than p50' : '⚠ above p50';
+    // Labels must describe the actual direction — saying "above p50" for a
+    // higher-better metric that is in fact at p20 would be a lie.
+    let status: string;
+    if (b.interpretation === 'higher-better') {
+      if (b.percentile >= 75) status = '✓ above p75 — strong';
+      else if (b.percentile >= 50) status = '✓ above p50';
+      else if (b.percentile >= 25) status = '⚠ below p50 — room to improve';
+      else status = '🔴 below p25 — material debt';
+    } else {
+      if (b.percentile <= 25) status = '✓ below p25 — strong';
+      else if (b.percentile <= 50) status = '✓ below p50';
+      else if (b.percentile <= 75) status = '⚠ above p50 — room to improve';
+      else status = '🔴 above p75 — material debt';
+    }
     lines.push(
       `| ${b.metric} | ${b.value} | ${b.p50} | ${b.p90} | ${b.percentile}% | ${status} |`
     );
   }
+  lines.push('');
+  lines.push(
+    '> _Scoring caveat — real OSS projects cluster in the 65–90 range. A score of 50 is already meaningful debt, not "half-good". Averages also dilute individual catastrophic files — always cross-reference the **Cross-correlated bottlenecks** section below._'
+  );
   lines.push('');
   lines.push('---');
   lines.push('');
@@ -357,6 +382,33 @@ export function generateMarkdownReport(
 
   lines.push('---');
   lines.push('');
+
+  // ===== v1.4 Sprint 10 #16 — BUNDLE IMPACT =====
+  if (audit.bundleFindings && audit.bundleFindings.length > 0) {
+    lines.push('## 📦 Bundle Impact');
+    lines.push('');
+    lines.push(
+      '> _Real gzipped sizes from [BundlePhobia](https://bundlephobia.com). Only dependencies ≥50kB gzipped are listed._'
+    );
+    lines.push('');
+    lines.push('| Dep | Version | Gzipped | Raw | Deps | Severity |');
+    lines.push('|---|---|---|---|---|---|');
+    const sorted = [...audit.bundleFindings].sort((a, b) => b.gzipKB - a.gzipKB);
+    for (const b of sorted) {
+      const icon =
+        b.severity === 'critical' ? '🔴' : b.severity === 'warning' ? '⚠️' : 'ℹ️';
+      lines.push(
+        `| \`${b.name}\` | ${b.version} | ${b.gzipKB}kB | ${b.rawKB}kB | ${b.dependencyCount} | ${icon} ${b.severity} |`
+      );
+    }
+    lines.push('');
+    lines.push(
+      '> _Honest limitation: sizes are pre-tree-shaking. Your actual bundle may be smaller if you only import specific symbols._'
+    );
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+  }
 
   // ===== FOOTER =====
   lines.push('## About this report');

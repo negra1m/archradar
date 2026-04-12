@@ -56,8 +56,24 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
     const worst = analysis.complexity.hotspots[0];
     recs.push({
       priority: 1,
-      message: `High cyclomatic complexity in "${worst.function}" (${maskPath(worst.file)}, score ${worst.complexity}). Extract smaller functions.`,
+      message: `High cognitive complexity in "${worst.function}" (${maskPath(worst.file)}, score ${worst.complexity}). Extract smaller functions.`,
     });
+  }
+
+  // v1.4 Sprint 4 #8 — Test culture recommendation.
+  // Only fires for projects with enough source files to judge.
+  if (scan.files.sourceFileCount >= 20) {
+    if (scan.files.testFileCount === 0) {
+      recs.push({
+        priority: 1,
+        message: `Zero test files detected across ${scan.files.sourceFileCount} source files. Adding even smoke tests for the critical paths would strengthen the score and reduce regression risk.`,
+      });
+    } else if (scan.files.testCoverageRatio < 0.1) {
+      recs.push({
+        priority: 2,
+        message: `Low test culture: ${scan.files.testFileCount} test files for ${scan.files.sourceFileCount} source files (ratio ${scan.files.testCoverageRatio.toFixed(2)}). Mature projects typically run 0.3-0.5. Note: this counts files, not line coverage.`,
+      });
+    }
   }
 
   if (analysis.circularDeps.hasCycles) {
@@ -72,6 +88,20 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
     recs.push({
       priority: 2,
       message: analysis.modularity.issues[0],
+    });
+  }
+
+  // v1.4 Sprint 6 — tech debt markers.
+  if (analysis.techDebt.densityPerKLoc >= 3) {
+    const top = analysis.techDebt.highDensityFiles[0];
+    recs.push({
+      priority: 2,
+      message: `High tech debt density (${analysis.techDebt.densityPerKLoc.toFixed(1)}/KLOC). Worst offender: ${top ? maskPath(top.file) + ` (${top.count} markers)` : 'multiple files'}. Plan a debt sweep.`,
+    });
+  } else if (analysis.techDebt.byType['ts-nocheck'] > 0) {
+    recs.push({
+      priority: 2,
+      message: `${analysis.techDebt.byType['ts-nocheck']} file(s) use @ts-nocheck. These files opt out of type checking entirely — prioritize restoring type safety.`,
     });
   }
 
