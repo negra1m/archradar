@@ -239,7 +239,7 @@ export function display(
   if (user && user.username) {
     console.log(`  ${chalk.green('✓')} ${chalk.bold.white('PREMIUM UNLOCKED')}`);
     console.log(`    ${chalk.dim('Signed in as')} ${chalk.cyan('@' + user.username)}`);
-    console.log(`    ${chalk.dim('Free during early access.')}`);
+    console.log(`    ${chalk.dim('Free during early access — login required.')}`);
   } else {
     console.log(`  ${chalk.yellow('◆')} ${chalk.bold.white('FREE DURING EARLY ACCESS')}`);
     console.log(`    ${chalk.dim('Sign in with GitHub to unlock deep analysis:')}`);
