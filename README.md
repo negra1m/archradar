@@ -99,14 +99,6 @@ Ele aponta o que corrigir primeiro.
 
 ---
 
-## Preview
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/negra1m/archradar/main/assets/demo.gif" alt="ArchRadar demo" width="100%" />
-</p>
-
----
-
 ## Output
 
 ```
