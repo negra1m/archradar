@@ -3,9 +3,11 @@ import path from 'path';
 import { CircularDepsResult } from '../../types/index.js';
 
 type Graph = Map<string, Set<string>>;
+type GraphBuildResult = { graph: Graph; typeOnlyFiltered: number };
 
-function buildGraph(projectPath: string, project: InstanceType<typeof Project>): Graph {
+function buildGraph(projectPath: string, project: InstanceType<typeof Project>): GraphBuildResult {
   const graph: Graph = new Map();
+  let typeOnlyFiltered = 0;
 
   for (const sourceFile of project.getSourceFiles()) {
     const filePath = path.relative(projectPath, sourceFile.getFilePath());
@@ -15,6 +17,14 @@ function buildGraph(projectPath: string, project: InstanceType<typeof Project>):
       const moduleSpec = imp.getModuleSpecifierValue();
       if (!moduleSpec.startsWith('.')) continue; // skip node_modules
 
+      // Filter type-only imports. A cycle between `import type` declarations
+      // has no runtime meaning — TypeScript erases them during compilation.
+      // Treating them as real cycles produced false positives in v1.3.
+      if (imp.isTypeOnly()) {
+        typeOnlyFiltered++;
+        continue;
+      }
+
       const resolved = imp.getModuleSpecifierSourceFile();
       if (!resolved) continue;
 
@@ -23,7 +33,7 @@ function buildGraph(projectPath: string, project: InstanceType<typeof Project>):
     }
   }
 
-  return graph;
+  return { graph, typeOnlyFiltered };
 }
 
 function detectCycles(graph: Graph): string[][] {
@@ -77,7 +87,7 @@ export async function analyzeCircularDeps(projectPath: string): Promise<Circular
     `!${path.join(projectPath, '**/.next/**')}`,
   ]);
 
-  const graph = buildGraph(projectPath, project);
+  const { graph, typeOnlyFiltered } = buildGraph(projectPath, project);
   const cycles = detectCycles(graph);
 
   // Convert Map<string, Set<string>> to Record<string, string[]> for serialization.
@@ -91,5 +101,6 @@ export async function analyzeCircularDeps(projectPath: string): Promise<Circular
     cycles: cycles.slice(0, 10),
     allCycles: cycles,
     graph: graphRecord,
+    typeOnlyImportsFiltered: typeOnlyFiltered,
   };
 }

@@ -58,6 +58,8 @@ Você roda.
 Ele escaneia.  
 Você entende o que está torto.
 
+> 📐 **Antes de avaliar os números:** leia [`DESIGN.md`](./DESIGN.md) — o que archradar mede, o que **não** mede, e por que a matemática é honesta. Para as fórmulas exatas, veja [`SCORING.md`](./SCORING.md). Se você é dev sênior revisando a tool, comece por esses dois.
+
 ---
 
 ## O que ele faz

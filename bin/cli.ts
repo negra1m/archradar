@@ -29,7 +29,7 @@ import { maskPath } from '../src/utils/pathMask.js';
 const ARCHRADAR_API =
   process.env.ARCHRADAR_API_URL ??
   ['https://archradar-api', 'fewcompany', 'com'].join('.');
-const ARCHRADAR_VERSION = '1.3.0';
+const ARCHRADAR_VERSION = '1.4.0';
 
 function apiHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {

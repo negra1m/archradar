@@ -1,11 +1,13 @@
 {
   "name": "@fewcompany/archradar",
-  "version": "1.3.0",
+  "version": "1.4.0-wip",
   "description": "Architectural Intelligence Engine for modern frontend teams — by Few Company",
   "bin": {
     "archradar": "dist/bin/cli.js"
   },
   "scripts": {
+    "prebuild": "node scripts/sync-calibration.mjs",
+    "postbuild": "node scripts/copy-data-assets.mjs",
     "build": "tsc",
     "dev": "ts-node bin/cli.ts",
     "start": "node dist/bin/cli.js"

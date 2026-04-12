@@ -4,6 +4,7 @@ import { ScanResult, AnalysisResult, ScoreResult } from '../../types/index.js';
 import { maskPath } from '../../utils/pathMask.js';
 import { textToBraille, applyGradient } from '../welcome/brailleText.js';
 import { HIGH_COUPLING_THRESHOLD } from '../analyzer/couplingAnalyzer.js';
+import { shouldWarnSmallScan } from '../scanner/fileScanner.js';
 
 export interface PremiumInsights {
   prevScore: number;
@@ -58,7 +59,22 @@ export function display(
     `  ${chalk.dim('Framework:')} ${chalk.white(scan.framework.framework)}${scan.framework.version ? chalk.dim(' ' + scan.framework.version) : ''}`
   );
   console.log(`  ${chalk.dim('Bundler:')}   ${chalk.white(scan.framework.bundler)}`);
-  console.log(`  ${chalk.dim('Files:')}     ${chalk.white(scan.files.totalFiles.toString())}`);
+  console.log(
+    `  ${chalk.dim('Files:')}     ${chalk.white(scan.files.totalFiles.toString())} source` +
+      (scan.files.testFileCount > 0
+        ? chalk.dim(` + ${scan.files.testFileCount} tests`)
+        : chalk.dim(' + 0 tests'))
+  );
+  // v1.4 Sprint 10 #19 — small-scan warning.
+  if (shouldWarnSmallScan(scan.framework.framework, scan.files.totalFiles)) {
+    console.log(
+      chalk.yellow('  ⚠') +
+        chalk.dim(
+          `         Scan found only ${scan.files.totalFiles} source file(s). This may indicate ` +
+            `.gitignore hiding source, running in the wrong monorepo subdir, or an incomplete project.`
+        )
+    );
+  }
   console.log(`  ${chalk.dim('Avg lines:')} ${chalk.white(scan.files.avgLinesPerFile.toString())}`);
   console.log(`  ${chalk.dim('Total deps:')}${chalk.white(' ' + scan.dependencies.totalDeps.toString())}`);
 
@@ -83,7 +99,9 @@ export function display(
   printBreakdownLine('Dependencies', b.dependencies);
   printBreakdownLine('Coupling', b.coupling);
   printBreakdownLine('Complexity', b.complexity);
+  printBreakdownLine('Worst file', b.worstFile);
   printBreakdownLine('Modularity', b.modularity);
+  printBreakdownLine('Tests', b.tests);
 
   // Findings
   console.log('');
@@ -122,7 +140,10 @@ export function display(
   // AST findings
   if (analysis.complexity.hotspots.length > 0) {
     const worst = analysis.complexity.hotspots[0];
-    console.log(`  ${chalk.yellow('⚠')}  High complexity: ${chalk.red(worst.function)} (score ${worst.complexity}) in ${chalk.dim(maskPath(worst.file))}`);
+    console.log(
+      `  ${chalk.yellow('⚠')}  High complexity: ${chalk.red(worst.function)} ` +
+        `(cognitive ${worst.complexity}, ${worst.lines} lines) in ${chalk.dim(maskPath(worst.file))}`
+    );
   } else {
     console.log(`  ${chalk.green('✓')}  Cyclomatic complexity within threshold`);
   }
@@ -147,6 +168,44 @@ export function display(
     analysis.modularity.issues.forEach((issue) => {
       console.log(`  ${chalk.yellow('⚠')}  ${issue}`);
     });
+  }
+
+  // v1.4 Sprint 11 — data flow findings.
+  const df = analysis.dataFlow;
+  if (df.sharedMutables.length > 0) {
+    console.log(
+      `  ${chalk.red('✗')}  ${df.sharedMutables.length} shared mutable export(s) — ` +
+        chalk.dim(`exported \`let\`/\`var\` mutated across modules. Worst: ${maskPath(df.sharedMutables[0].file)} (${df.sharedMutables[0].name})`)
+    );
+  }
+  if (df.mutableSingletons.length > 0) {
+    console.log(
+      `  ${chalk.yellow('⚠')}  ${df.mutableSingletons.length} mutable singleton(s) — ` +
+        chalk.dim(`exported Map/Set/Array at module scope. Anyone importing can mutate shared state`)
+    );
+  }
+  if (df.importTimeSideEffects.length > 0) {
+    console.log(
+      `  ${chalk.yellow('⚠')}  ${df.importTimeSideEffects.length} import-time side effect(s) in high-fan-in modules — ` +
+        chalk.dim(`top-level code runs at import. Worst: ${maskPath(df.importTimeSideEffects[0].file)}`)
+    );
+  }
+
+  // v1.4 Sprint 6 — tech debt finding.
+  const td = analysis.techDebt;
+  if (td.totalMarkers > 0) {
+    const parts: string[] = [];
+    if (td.byType.todo > 0) parts.push(`${td.byType.todo} TODO`);
+    if (td.byType.fixme > 0) parts.push(`${td.byType.fixme} FIXME`);
+    if (td.byType.hack > 0) parts.push(`${td.byType.hack} HACK`);
+    if (td.byType['ts-ignore'] > 0) parts.push(`${td.byType['ts-ignore']} @ts-ignore`);
+    if (td.byType['eslint-disable'] > 0) parts.push(`${td.byType['eslint-disable']} eslint-disable`);
+    const density = td.densityPerKLoc.toFixed(1);
+    const icon = td.densityPerKLoc >= 3 ? chalk.red('✗') : chalk.yellow('⚠');
+    console.log(
+      `  ${icon}  Tech debt: ${parts.slice(0, 3).join(', ')}` +
+        chalk.dim(` (${td.totalMarkers} markers, ${density}/KLOC)`)
+    );
   }
 
   // Recommendations

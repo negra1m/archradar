@@ -19,9 +19,28 @@ export interface FrameworkInfo {
 }
 
 export interface FileScanResult {
+  /**
+   * Number of SOURCE files (excludes test files).
+   * Tests live in `testFileCount`.
+   */
   totalFiles: number;
   avgLinesPerFile: number;
   criticalFiles: FileInfo[];
+  /**
+   * v1.4 Sprint 4 — source-file count (alias of totalFiles for clarity).
+   */
+  sourceFileCount: number;
+  /**
+   * Number of files matching test patterns (`*.test.*`, `*.spec.*`,
+   * `__tests__/`, top-level `tests/`).
+   */
+  testFileCount: number;
+  /**
+   * Ratio testFileCount / sourceFileCount. NOT real coverage — this is a
+   * proxy for test culture. Real coverage requires running jest/vitest and
+   * parsing LCOV. See DESIGN.md for the honest limitation.
+   */
+  testCoverageRatio: number;
 }
 
 export interface DependencyInfo {
@@ -45,11 +64,33 @@ export interface StructureScanResult {
   matchConfidence: number;
 }
 
+// Re-export tech-debt types from the analyzer module so callers can import
+// everything from `types/index.ts`.
+import type {
+  TechDebtMarker,
+  TechDebtMarkerType,
+  TechDebtResult,
+} from '../core/analyzer/techDebtAnalyzer.js';
+export type { TechDebtMarker, TechDebtMarkerType, TechDebtResult };
+
+// Re-export data-flow types.
+import type {
+  SharedMutable,
+  ImportTimeSideEffect,
+  MutableSingleton,
+  DataFlowResult,
+} from '../core/analyzer/dataFlowAnalyzer.js';
+export type { SharedMutable, ImportTimeSideEffect, MutableSingleton, DataFlowResult };
+
 export interface AnalysisResult {
   complexity: ComplexityResult;
   coupling: CouplingResult;
   circularDeps: CircularDepsResult;
   modularity: ModularityResult;
+  /** v1.4 Sprint 6 — tech debt markers (TODO, @ts-ignore, eslint-disable...). */
+  techDebt: TechDebtResult;
+  /** v1.4 Sprint 11 — basic data flow detection (shared mutables, side effects, singletons). */
+  dataFlow: DataFlowResult;
 }
 
 // ===== Audit-level detectors (only run on `archradar audit`) =====
@@ -93,12 +134,27 @@ export interface AuditDetectionResult {
 export interface ComplexityResult {
   avgComplexity: number;
   /**
-   * 95th percentile of cyclomatic complexity across all functions.
+   * 95th percentile of cognitive complexity across all functions (v1.4+).
    * Gives a truer picture of the codebase's complexity load than `avg`,
    * which is dragged down by trivial functions.
    */
   p95Complexity: number;
-  hotspots: Array<{ file: string; function: string; complexity: number }>;
+  /**
+   * v1.4 Sprint 5 — Largest function by line count found across the
+   * whole project. Computed independently of complexity so a long-but-
+   * simple function still gets flagged.
+   */
+  maxFunctionLines: number;
+  hotspots: Array<{
+    file: string;
+    function: string;
+    complexity: number;
+    /**
+     * v1.4 Sprint 5 — line count of this specific function
+     * (endLine - startLine + 1).
+     */
+    lines: number;
+  }>;
 }
 
 export interface CouplingResult {
@@ -115,9 +171,22 @@ export interface CircularDepsResult {
   allCycles: string[][];
   /** Import graph: file -> list of locally-imported files. Kept for premium analysis. */
   graph: Record<string, string[]>;
+  /**
+   * How many `import type { ... }` declarations were excluded from the cycle graph.
+   * Type-only imports are stripped at compile time, so a cycle between them is
+   * not a runtime cycle. We count them for transparency — a high number means
+   * earlier archradar versions would have reported a lot of false positives.
+   */
+  typeOnlyImportsFiltered: number;
 }
 
-export type ModularityViolationType = 'ui-imports-logic' | 'hook-imports-ui';
+export type ModularityViolationType =
+  | 'ui-imports-logic'
+  | 'hook-imports-ui'
+  // v1.4 Sprint 7 additions:
+  | 'god-store'
+  | 'context-overconsumed'
+  | 'prop-drilling';
 
 export interface ModularityViolation {
   file: string;
@@ -154,6 +223,18 @@ export interface ScoreBreakdown {
   dependencies: number;
   coupling: number;
   complexity: number;
+  /**
+   * v1.4 Sprint 2 #1 — dedicated score for the single worst file in the
+   * project. Mitigates the averaging dilution problem where one 1000-line
+   * file hides inside an OK avg.
+   */
+  worstFile: number;
   /** null when modularity is not assessable (backend-only project). */
   modularity: number | null;
+  /**
+   * v1.4 Sprint 4 #8 — test culture proxy (test file count / source file
+   * count). Null when the project is too small to judge (<20 source files).
+   * See DESIGN.md for the honest limitation: this is NOT real coverage.
+   */
+  tests: number | null;
 }
