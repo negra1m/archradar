@@ -171,11 +171,25 @@ archradar
 ### Comandos
 
 ```bash
-archradar scan           # Scan arquitetural completo (padrão)
-archradar scan --json    # Saída em JSON
+archradar scan           # Scan arquitetural completo (offline, grátis)
+archradar scan --json    # Saída em JSON (para CI/pipelines)
+archradar audit          # Audit profundo com markdown report (requer login)
+archradar login          # Autenticação via GitHub
+archradar whoami         # Mostra usuário logado
+archradar logout         # Remove token local
 archradar --version      # Versão
 archradar --help         # Ajuda
 ```
+
+### Scan vs Audit
+
+| | `scan` | `audit` |
+|---|---|---|
+| **Custo** | Grátis, sempre | Free durante early access |
+| **Requer login** | Não | Sim (GitHub OAuth) |
+| **Funciona offline** | Sim | Precisa de conexão com a API |
+| **Output** | Terminal (score + breakdown + findings) | Markdown report (.archradar/audit-YYYY-MM-DD.md) |
+| **Inclui** | Score, breakdown, complexity hotspots, recommendations | Tudo do scan + trends, benchmarks, fan-in/fan-out, cross-correlation, god components, barrels, bundle impact, dependency intelligence |
 
 ---
 
