@@ -29,7 +29,7 @@ import { maskPath } from '../src/utils/pathMask.js';
 const ARCHRADAR_API =
   process.env.ARCHRADAR_API_URL ??
   ['https://archradar-api', 'fewcompany', 'com'].join('.');
-const ARCHRADAR_VERSION = '1.4.2';
+const ARCHRADAR_VERSION = '1.4.3';
 
 function apiHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
@@ -213,7 +213,12 @@ async function fetchAudit(
   });
 
   if (!res.ok) {
-    throw new Error(`Audit API responded with ${res.status}`);
+    let hint = '';
+    try {
+      const body = await res.json() as { message?: string };
+      if (body.message) hint = `\n  ${body.message}`;
+    } catch { /* ignore parse errors */ }
+    throw new Error(`Audit API responded with ${res.status}${hint}`);
   }
 
   return (await res.json()) as AuditApiResponse;

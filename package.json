@@ -1,6 +1,6 @@
 {
   "name": "@fewcompany/archradar",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Architectural Intelligence Engine for modern frontend teams — by Few Company",
   "bin": {
     "archradar": "dist/bin/cli.js"
