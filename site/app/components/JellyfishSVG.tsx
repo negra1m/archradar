@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useRef, useState, useMemo, useCallback } from "react";
 
 type Props = {
   size?: number;
@@ -29,8 +29,47 @@ function makeBellPath(bW: number, bH: number) {
   ].join(" ");
 }
 
+// Gera o path de um tentáculo dado o offset de hover (hx, hy)
+// hx, hy: deslocamento do mouse relativo ao centro do SVG (em coords do viewBox)
+function makeTentaclePath(
+  t: { bx: number; len: number; drift: number },
+  ty0: number,
+  s: number,
+  hoverOffset: { hx: number; hy: number } | null
+): string {
+  const cx1  = t.bx + t.drift * 0.55;
+  const cy1  = ty0 + t.len * 0.33;
+  const cx2  = t.bx - t.drift * 0.38;
+  const cy2  = ty0 + t.len * 0.68;
+  const x1   = t.bx + t.drift;
+  const y1   = ty0 + t.len;
+
+  if (!hoverOffset) {
+    return `M ${t.bx},${ty0} C ${cx1},${cy1} ${cx2},${cy2} ${x1},${y1}`;
+  }
+
+  // Desvio na direção oposta ao mouse, proporcional à proximidade
+  // Máximo 35% do drift original como magnitude de desvio
+  const maxDev = Math.abs(t.drift) * 0.35;
+
+  // Normaliza o offset horizontal (o eixo principal de curvatura)
+  // Limita o efeito a ±bellW (não precisa passar da largura da bell)
+  const norm = Math.max(-1, Math.min(1, hoverOffset.hx / (t.bx !== 0 ? Math.abs(t.bx) * 3 : 1)));
+  const devX = -norm * maxDev;
+
+  // Aplica o desvio de forma progressiva ao longo do tentáculo (maior na ponta)
+  const dcx1 = cx1 + devX * 0.25;
+  const dcx2 = cx2 + devX * 0.70;
+  const dx1  = x1  + devX * 1.00;
+
+  return `M ${t.bx},${ty0} C ${dcx1},${cy1} ${dcx2},${cy2} ${dx1},${y1}`;
+}
+
 export default function JellyfishSVG({ size = 80, id }: Props) {
   const s = size / 100;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [mousePos, setMousePos] = useState<{ hx: number; hy: number } | null>(null);
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const bellW = 56 * s;
   const bellH = 52 * s;
@@ -70,20 +109,83 @@ export default function JellyfishSVG({ size = 80, id }: Props) {
 
   // tentY0 por tentáculo — segue a borda real da bell
 
-
   const vbX = -80 * s;
   const vbY =  -6 * s;
   const vbW = 160 * s;
   const vbH = 420 * s;
 
+  // Paths dos tentáculos calculados com base na posição do mouse
+  const tentaclePaths = useMemo(() => {
+    return tentacles.map((t) => {
+      const ty0 = bellEdgeY(t.bx, bellW, bellH);
+      return {
+        d0: makeTentaclePath(t, ty0, s, null),
+        d1: (() => {
+          // versão animada original (para o <animate> SMIL)
+          const cx1  = t.bx + t.drift * 0.55;
+          const cy1  = bellEdgeY(t.bx, bellW, bellH) + t.len * 0.33;
+          const cx2  = t.bx - t.drift * 0.38;
+          const cy2  = bellEdgeY(t.bx, bellW, bellH) + t.len * 0.68;
+          const x1   = t.bx + t.drift;
+          const y1   = bellEdgeY(t.bx, bellW, bellH) + t.len;
+          return `M ${t.bx},${bellEdgeY(t.bx, bellW, bellH)} C ${cx1+t.drift*0.75},${cy1+2.5*s} ${cx2-t.drift*0.55},${cy2-2*s} ${x1-t.drift*0.28},${y1}`;
+        })(),
+        dHover: makeTentaclePath(t, ty0, s, mousePos),
+        ty0,
+      };
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mousePos, bellW, bellH, s]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    // Cancela qualquer timer de saída pendente
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+
+    const rect = svg.getBoundingClientRect();
+    // Centro do SVG em coords de tela
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top  + rect.height / 2;
+
+    // Offset do mouse relativo ao centro, escalado ao viewBox
+    const scaleX = vbW / rect.width;
+    const scaleY = vbH / rect.height;
+    const hx = (e.clientX - cx) * scaleX;
+    const hy = (e.clientY - cy) * scaleY;
+
+    // Pausa animações SMIL quando hover está ativo
+    if (!mousePos) {
+      svg.pauseAnimations();
+    }
+
+    setMousePos({ hx, hy });
+  }, [mousePos, vbW, vbH]);
+
+  const handleMouseLeave = useCallback(() => {
+    const svg = svgRef.current;
+    // Retoma animações SMIL com pequeno delay para suavizar a saída
+    leaveTimerRef.current = setTimeout(() => {
+      setMousePos(null);
+      if (svg) svg.unpauseAnimations();
+    }, 300);
+  }, []);
+
   return (
     <svg
+      ref={svgRef}
       width={vbW}
       height={vbH}
       viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       style={{ overflow: "visible" }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
     >
       <defs>
         <filter id={`glow-${id}`} x="-60%" y="-30%" width="220%" height="180%">
@@ -142,22 +244,33 @@ export default function JellyfishSVG({ size = 80, id }: Props) {
       {/* ── TENTÁCULOS (atrás) ── */}
       <g filter={`url(#glow-${id})`} opacity="0.88">
         {tentacles.map((t, i) => {
-          const ty0  = bellEdgeY(t.bx, bellW, bellH);
-          const y1   = ty0 + t.len;
-          const cx1  = t.bx + t.drift * 0.55;
-          const cy1  = ty0 + t.len * 0.33;
-          const cx2  = t.bx - t.drift * 0.38;
-          const cy2  = ty0 + t.len * 0.68;
-          const x1   = t.bx + t.drift;
-
-          const d0 = `M ${t.bx},${ty0} C ${cx1},${cy1} ${cx2},${cy2} ${x1},${y1}`;
-          const d1 = `M ${t.bx},${ty0} C ${cx1+t.drift*0.75},${cy1+2.5*s} ${cx2-t.drift*0.55},${cy2-2*s} ${x1-t.drift*0.28},${y1}`;
+          const p = tentaclePaths[i];
+          const isHovered = mousePos !== null;
 
           return (
-            <path key={i} d={d0} stroke={`url(#tentGrad-${id})`} strokeWidth={Math.max(0.8, 1.4*s)} strokeLinecap="round">
-              <animate attributeName="d" dur={t.dur} repeatCount="indefinite" begin={t.delay}
-                calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1"
-                values={`${d0};${d1};${d0}`} />
+            <path
+              key={i}
+              d={isHovered ? p.dHover : p.d0}
+              stroke={`url(#tentGrad-${id})`}
+              strokeWidth={Math.max(0.8, 1.4*s)}
+              strokeLinecap="round"
+              style={
+                isHovered
+                  ? { transition: "d 0.25s ease-out" }
+                  : { transition: "d 0.35s ease-out" }
+              }
+            >
+              {!isHovered && (
+                <animate
+                  attributeName="d"
+                  dur={t.dur}
+                  repeatCount="indefinite"
+                  begin={t.delay}
+                  calcMode="spline"
+                  keySplines="0.4 0 0.6 1; 0.4 0 0.6 1"
+                  values={`${p.d0};${p.d1};${p.d0}`}
+                />
+              )}
             </path>
           );
         })}
