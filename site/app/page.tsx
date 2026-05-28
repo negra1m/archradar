@@ -289,7 +289,7 @@ export default function Home() {
           powered by
         </span>
         <a
-          href="https://fewcompany.com.br"
+          href="https://fewcompany.com"
           target="_blank"
           rel="noopener noreferrer"
           className="font-mono text-xs transition-colors duration-200"
