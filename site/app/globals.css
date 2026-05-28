@@ -8,8 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-poppins), var(--font-inter), system-ui, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Code", monospace;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 * {
@@ -18,14 +18,9 @@
 
 html,
 body {
+  overflow: hidden;
+  height: 100%;
   width: 100%;
-}
-
-@media (min-width: 768px) {
-  html, body {
-    height: 100%;
-    overflow: hidden;
-  }
 }
 
 body {
@@ -413,6 +408,21 @@ body {
 
 .bell-pulse {
   animation: bell-pulse 7.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes spin-z {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes spin-y {
+  from { transform: rotateY(0deg); }
+  to   { transform: rotateY(360deg); }
+}
+
+.spin-y {
+  animation: spin-y 6s linear infinite;
+  transform-style: preserve-3d;
 }
 
 /* ── Utility classes ── */

@@ -175,8 +175,8 @@ const externalLinks = [
 export default function Home() {
   return (
     <main
-      className="relative w-screen flex flex-col md:h-screen md:overflow-hidden"
-      style={{ minHeight: "100svh", background: "#0a0a0f" }}
+      className="relative w-screen h-screen overflow-hidden flex flex-col"
+      style={{ background: "#0a0a0f" }}
     >
       {/* medusas em toda a tela, atrás de tudo */}
       <JellyfishScene />
@@ -194,17 +194,16 @@ export default function Home() {
       />
 
 
-      {/* desktop: 2 colunas | mobile: coluna única com scroll */}
-      <div className="relative z-10 flex flex-col md:flex-1 md:grid md:grid-cols-[1fr_320px] md:min-h-0">
+      <div className="relative z-10 flex-1 grid grid-cols-[1fr_320px] min-h-0">
 
-        {/* HERO */}
-        <div className="flex flex-col justify-center px-6 py-10 gap-5 md:px-14 md:py-0">
+        {/* LEFT — hero */}
+        <div className="flex flex-col justify-center px-14 gap-5">
           <div>
             <div className="flex items-center gap-3 mb-3">
               <h1
                 className="font-sans font-black tracking-tight leading-none"
                 style={{
-                  fontSize: "clamp(3.5rem, 12vw, 8rem)",
+                  fontSize: "clamp(5rem, 9vw, 8rem)",
                   background: "linear-gradient(135deg, #a855f7 0%, #06b6d4 100%)",
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent",
@@ -220,7 +219,7 @@ export default function Home() {
                 CLI
               </span>
             </div>
-            <p className="font-sans leading-snug" style={{ fontSize: "clamp(1rem, 3.5vw, 1.25rem)", color: "rgba(148,163,184,0.8)", maxWidth: "32rem" }}>
+            <p className="font-sans leading-snug" style={{ fontSize: "clamp(1.05rem, 1.5vw, 1.25rem)", color: "rgba(148,163,184,0.8)", maxWidth: "32rem" }}>
               Motor de Inteligência Arquitetural<br />para times de frontend modernos.
             </p>
           </div>
@@ -241,7 +240,7 @@ export default function Home() {
             ))}
           </div>
 
-          <div className="w-full md:max-w-sm">
+          <div style={{ maxWidth: "24rem" }}>
             <div className="font-mono text-[10px] mb-1.5 tracking-widest" style={{ color: "rgba(148,163,184,0.45)" }}>
               INSTALAR
             </div>
@@ -272,10 +271,10 @@ export default function Home() {
           </div>
         </div>
 
-        {/* SCAN PANEL — lado direito no desktop, abaixo no mobile */}
+        {/* RIGHT — scan panel compacto, centralizado verticalmente */}
         <div
-          className="flex flex-col justify-center px-6 py-6 md:px-5 md:py-4"
-          style={{ borderTop: "1px solid rgba(147,51,234,0.08)" }}
+          className="flex flex-col justify-center py-4 px-5 min-h-0"
+          style={{ borderLeft: "1px solid rgba(147,51,234,0.08)" }}
         >
           <ScanPanel />
         </div>
@@ -290,7 +289,7 @@ export default function Home() {
           powered by
         </span>
         <a
-          href="https://fewcompany.com"
+          href="https://fewcompany.com.br"
           target="_blank"
           rel="noopener noreferrer"
           className="font-mono text-xs transition-colors duration-200"
