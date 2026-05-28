@@ -1,0 +1,505 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0f;
+  --foreground: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background: #0a0a0f;
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* ── Jellyfish animations ── */
+
+@keyframes float-a {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  33% {
+    transform: translateY(-18px) rotate(1.5deg);
+  }
+  66% {
+    transform: translateY(-8px) rotate(-1deg);
+  }
+}
+
+@keyframes float-b {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  40% {
+    transform: translateY(-24px) rotate(-2deg);
+  }
+  70% {
+    transform: translateY(-10px) rotate(1.2deg);
+  }
+}
+
+@keyframes float-c {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-14px) rotate(2deg);
+  }
+}
+
+@keyframes tentacle-wave {
+  0%,
+  100% {
+    transform: scaleX(1) rotate(0deg);
+    border-radius: 0 0 50% 50%;
+  }
+  25% {
+    transform: scaleX(0.85) rotate(3deg);
+    border-radius: 0 0 60% 40%;
+  }
+  50% {
+    transform: scaleX(1.1) rotate(-2deg);
+    border-radius: 0 0 40% 60%;
+  }
+  75% {
+    transform: scaleX(0.9) rotate(4deg);
+    border-radius: 0 0 55% 45%;
+  }
+}
+
+@keyframes tentacle-wave-alt {
+  0%,
+  100% {
+    transform: scaleX(1) rotate(0deg);
+  }
+  33% {
+    transform: scaleX(1.15) rotate(-4deg);
+  }
+  66% {
+    transform: scaleX(0.8) rotate(3deg);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 0.7;
+    filter: blur(8px);
+  }
+  50% {
+    opacity: 1;
+    filter: blur(12px);
+  }
+}
+
+@keyframes pulse-glow-fast {
+  0%,
+  100% {
+    opacity: 0.5;
+    filter: blur(6px);
+  }
+  50% {
+    opacity: 0.9;
+    filter: blur(10px);
+  }
+}
+
+@keyframes bell-breathe {
+  0%,
+  100% {
+    transform: scaleY(1) scaleX(1);
+  }
+  50% {
+    transform: scaleY(0.94) scaleX(1.04);
+  }
+}
+
+@keyframes inner-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+@keyframes badge-blink {
+  0%,
+  90%,
+  100% {
+    opacity: 1;
+  }
+  95% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes counter-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scan-line {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.6;
+  }
+  90% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes radar-sweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes grid-pulse {
+  0%,
+  100% {
+    opacity: 0.03;
+  }
+  50% {
+    opacity: 0.07;
+  }
+}
+
+/* ── Jellyfish pulse locomotion ──────────────────────────────────────────────
+   Biomecânica real (Aurelia aurita):
+   Power stroke (contração): 22% do ciclo — rápida — bell amassa largo/baixo
+   Recovery stroke (relaxamento): 78% do ciclo — lenta — bell estica alto/estreito
+   Translação Y só durante o power stroke; recovery é deriva quase estática.
+   Razão contração:relaxamento = 1:3.5 (t_c=0.4s, t_r=1.4s por pulso real)
+   ──────────────────────────────────────────────────────────────────────── */
+
+/*
+  Ciclo de 4 pulsos. Cada pulso = 25% do total.
+  Power stroke = primeiros 22% do pulso → 5.5% do total por pulso.
+  Recovery     = restante 78% do pulso  → 19.5% do total por pulso.
+
+  Bell relaxada (repouso):  scaleY(1)    scaleX(1)
+  Bell no power stroke:     scaleY(0.62) scaleX(1.35)  ← amassa MAIS que antes
+  Bell no pico do impulso:  scaleY(1.25) scaleX(0.80)  ← esticada pra cima
+  (a contração é tão rápida que passa pelo ponto neutro com momentum)
+*/
+
+/*
+  Cada pulso = 25% do ciclo total.
+  Estrutura de um pulso (ex: P1 = 0%→25%):
+    0%→2%    repouso final da deriva anterior
+    2%→2.5%  squash rápido (bell amassa — 0.5% do ciclo)
+    2.5%→5%  power stroke (bell estica, sobe rápido — 2.5%)
+    5%→25%   deriva inercial: bell abre, Y continua subindo mas desacelerando
+              Y vai de -18vh (pico) até -22vh (quasi-parada) com ease-out
+              — a maior parte do deslocamento Y está no início da deriva
+*/
+
+/*
+  Inércia reforçada: após o impulso o Y avança 80% nos primeiros 30% da deriva,
+  os 20% restantes distribuídos pelos 70% finais — quase para antes do próximo pulso.
+  Cada pulso = 25% do ciclo.
+    2%→5%   squash + power stroke   (Y avança ~20vh de uma vez)
+    5%→10%  deriva forte            (Y +5vh — ainda tem momentum)
+    10%→18% deriva fraca            (Y +1.5vh — desacelerando rápido)
+    18%→25% deriva residual         (Y +0.3vh — quase parado)
+*/
+
+/*
+  6 keyframes: 3 direções × 2 distâncias (sm=pequenas, lg=grandes).
+  Valores absolutos em vh — sem custom properties.
+  Inércia real: impulso dá 18-20vh, deriva decai 5→1.5→0.3vh.
+  Entre pulsos: deriva mínima de 2-3vh para nunca parar completamente.
+*/
+
+/* ── PEQUENAS (sm): viagem total ~45vh ── */
+@keyframes rise-a-sm {
+  0%    { opacity:0;    transform:translateY(0)      translateX(0)    scaleY(1)    scaleX(1);   }
+  2%    { opacity:0.18; transform:translateY(0)      translateX(1px)  scaleY(0.58) scaleX(1.40);}
+  5%    {               transform:translateY(-10vh)  translateX(4px)  scaleY(1.28) scaleX(0.78);}
+  10%   {               transform:translateY(-13vh)  translateX(6px)  scaleY(1.06) scaleX(0.95);}
+  22%   {               transform:translateY(-14vh)  translateX(7px)  scaleY(1)    scaleX(1);   }
+  25%   {               transform:translateY(-15vh)  translateX(5px)  scaleY(0.58) scaleX(1.40);}
+  28%   {               transform:translateY(-24vh)  translateX(9px)  scaleY(1.28) scaleX(0.78);}
+  33%   {               transform:translateY(-27vh)  translateX(10px) scaleY(1.06) scaleX(0.95);}
+  47%   {               transform:translateY(-28vh)  translateX(11px) scaleY(1)    scaleX(1);   }
+  50%   {               transform:translateY(-29vh)  translateX(9px)  scaleY(0.58) scaleX(1.40);}
+  53%   {               transform:translateY(-37vh)  translateX(13px) scaleY(1.28) scaleX(0.78);}
+  58%   {               transform:translateY(-40vh)  translateX(14px) scaleY(1.06) scaleX(0.95);}
+  72%   {               transform:translateY(-41vh)  translateX(15px) scaleY(1)    scaleX(1);   }
+  75%   {               transform:translateY(-42vh)  translateX(12px) scaleY(0.58) scaleX(1.40);}
+  78%   {               transform:translateY(-50vh)  translateX(16px) scaleY(1.28) scaleX(0.78);}
+  83%   {               transform:translateY(-53vh)  translateX(17px) scaleY(1.06) scaleX(0.95);}
+  90%   {opacity:0.15;  transform:translateY(-54vh)  translateX(17px) scaleY(1)    scaleX(1);   }
+  96%   {opacity:0;     transform:translateY(-55vh)  translateX(17px) scaleY(1)    scaleX(1);   }
+  100%  {opacity:0;     transform:translateY(-115vh) translateX(17px) scaleY(1)    scaleX(1);   }
+}
+@keyframes rise-b-sm {
+  0%    { opacity:0;    transform:translateY(0)      translateX(0)     scaleY(1)    scaleX(1);   }
+  2%    { opacity:0.18; transform:translateY(0)      translateX(-1px)  scaleY(0.58) scaleX(1.40);}
+  5%    {               transform:translateY(-10vh)  translateX(-5px)  scaleY(1.28) scaleX(0.78);}
+  10%   {               transform:translateY(-13vh)  translateX(-7px)  scaleY(1.06) scaleX(0.95);}
+  22%   {               transform:translateY(-14vh)  translateX(-8px)  scaleY(1)    scaleX(1);   }
+  25%   {               transform:translateY(-15vh)  translateX(-6px)  scaleY(0.58) scaleX(1.40);}
+  28%   {               transform:translateY(-24vh)  translateX(-10px) scaleY(1.28) scaleX(0.78);}
+  33%   {               transform:translateY(-27vh)  translateX(-12px) scaleY(1.06) scaleX(0.95);}
+  47%   {               transform:translateY(-28vh)  translateX(-13px) scaleY(1)    scaleX(1);   }
+  50%   {               transform:translateY(-29vh)  translateX(-10px) scaleY(0.58) scaleX(1.40);}
+  53%   {               transform:translateY(-37vh)  translateX(-14px) scaleY(1.28) scaleX(0.78);}
+  58%   {               transform:translateY(-40vh)  translateX(-16px) scaleY(1.06) scaleX(0.95);}
+  72%   {               transform:translateY(-41vh)  translateX(-17px) scaleY(1)    scaleX(1);   }
+  75%   {               transform:translateY(-42vh)  translateX(-13px) scaleY(0.58) scaleX(1.40);}
+  78%   {               transform:translateY(-50vh)  translateX(-18px) scaleY(1.28) scaleX(0.78);}
+  83%   {               transform:translateY(-53vh)  translateX(-19px) scaleY(1.06) scaleX(0.95);}
+  90%   {opacity:0.15;  transform:translateY(-54vh)  translateX(-19px) scaleY(1)    scaleX(1);   }
+  96%   {opacity:0;     transform:translateY(-55vh)  translateX(-19px) scaleY(1)    scaleX(1);   }
+  100%  {opacity:0;     transform:translateY(-115vh) translateX(-19px) scaleY(1)    scaleX(1);   }
+}
+@keyframes rise-c-sm {
+  0%    { opacity:0;    transform:translateY(0)      translateX(0)    scaleY(1)    scaleX(1);   }
+  2%    { opacity:0.18; transform:translateY(0)      translateX(3px)  scaleY(0.58) scaleX(1.40);}
+  5%    {               transform:translateY(-9vh)   translateX(8px)  scaleY(1.28) scaleX(0.78);}
+  10%   {               transform:translateY(-12vh)  translateX(5px)  scaleY(1.06) scaleX(0.95);}
+  22%   {               transform:translateY(-13vh)  translateX(4px)  scaleY(1)    scaleX(1);   }
+  25%   {               transform:translateY(-14vh)  translateX(7px)  scaleY(0.58) scaleX(1.40);}
+  28%   {               transform:translateY(-22vh)  translateX(-2px) scaleY(1.28) scaleX(0.78);}
+  33%   {               transform:translateY(-25vh)  translateX(-4px) scaleY(1.06) scaleX(0.95);}
+  47%   {               transform:translateY(-26vh)  translateX(-5px) scaleY(1)    scaleX(1);   }
+  50%   {               transform:translateY(-27vh)  translateX(3px)  scaleY(0.58) scaleX(1.40);}
+  53%   {               transform:translateY(-35vh)  translateX(8px)  scaleY(1.28) scaleX(0.78);}
+  58%   {               transform:translateY(-38vh)  translateX(10px) scaleY(1.06) scaleX(0.95);}
+  72%   {               transform:translateY(-39vh)  translateX(11px) scaleY(1)    scaleX(1);   }
+  75%   {               transform:translateY(-40vh)  translateX(7px)  scaleY(0.58) scaleX(1.40);}
+  78%   {               transform:translateY(-48vh)  translateX(12px) scaleY(1.28) scaleX(0.78);}
+  83%   {               transform:translateY(-51vh)  translateX(13px) scaleY(1.06) scaleX(0.95);}
+  90%   {opacity:0.15;  transform:translateY(-52vh)  translateX(13px) scaleY(1)    scaleX(1);   }
+  96%   {opacity:0;     transform:translateY(-53vh)  translateX(13px) scaleY(1)    scaleX(1);   }
+  100%  {opacity:0;     transform:translateY(-115vh) translateX(13px) scaleY(1)    scaleX(1);   }
+}
+
+/* ── GRANDES (lg): viagem total ~95vh ── */
+@keyframes rise-a-lg {
+  0%    { opacity:0;    transform:translateY(0)      translateX(0)    scaleY(1)    scaleX(1);   }
+  2%    { opacity:0.18; transform:translateY(0)      translateX(2px)  scaleY(0.58) scaleX(1.40);}
+  5%    {               transform:translateY(-22vh)  translateX(7px)  scaleY(1.28) scaleX(0.78);}
+  10%   {               transform:translateY(-27vh)  translateX(10px) scaleY(1.06) scaleX(0.95);}
+  22%   {               transform:translateY(-29vh)  translateX(11px) scaleY(1)    scaleX(1);   }
+  25%   {               transform:translateY(-30vh)  translateX(8px)  scaleY(0.58) scaleX(1.40);}
+  28%   {               transform:translateY(-51vh)  translateX(14px) scaleY(1.28) scaleX(0.78);}
+  33%   {               transform:translateY(-56vh)  translateX(16px) scaleY(1.06) scaleX(0.95);}
+  47%   {               transform:translateY(-58vh)  translateX(17px) scaleY(1)    scaleX(1);   }
+  50%   {               transform:translateY(-59vh)  translateX(14px) scaleY(0.58) scaleX(1.40);}
+  53%   {               transform:translateY(-79vh)  translateX(19px) scaleY(1.28) scaleX(0.78);}
+  58%   {               transform:translateY(-84vh)  translateX(21px) scaleY(1.06) scaleX(0.95);}
+  72%   {               transform:translateY(-86vh)  translateX(22px) scaleY(1)    scaleX(1);   }
+  75%   {               transform:translateY(-87vh)  translateX(18px) scaleY(0.58) scaleX(1.40);}
+  78%   {               transform:translateY(-107vh) translateX(23px) scaleY(1.28) scaleX(0.78);}
+  83%   {               transform:translateY(-112vh) translateX(24px) scaleY(1.06) scaleX(0.95);}
+  90%   {opacity:0.15;  transform:translateY(-114vh) translateX(24px) scaleY(1)    scaleX(1);   }
+  96%   {opacity:0;     transform:translateY(-115vh) translateX(24px) scaleY(1)    scaleX(1);   }
+  100%  {opacity:0;     transform:translateY(-120vh) translateX(24px) scaleY(1)    scaleX(1);   }
+}
+@keyframes rise-b-lg {
+  0%    { opacity:0;    transform:translateY(0)      translateX(0)     scaleY(1)    scaleX(1);   }
+  2%    { opacity:0.18; transform:translateY(0)      translateX(-3px)  scaleY(0.58) scaleX(1.40);}
+  5%    {               transform:translateY(-22vh)  translateX(-10px) scaleY(1.28) scaleX(0.78);}
+  10%   {               transform:translateY(-27vh)  translateX(-14px) scaleY(1.06) scaleX(0.95);}
+  22%   {               transform:translateY(-29vh)  translateX(-15px) scaleY(1)    scaleX(1);   }
+  25%   {               transform:translateY(-30vh)  translateX(-11px) scaleY(0.58) scaleX(1.40);}
+  28%   {               transform:translateY(-51vh)  translateX(-18px) scaleY(1.28) scaleX(0.78);}
+  33%   {               transform:translateY(-56vh)  translateX(-20px) scaleY(1.06) scaleX(0.95);}
+  47%   {               transform:translateY(-58vh)  translateX(-22px) scaleY(1)    scaleX(1);   }
+  50%   {               transform:translateY(-59vh)  translateX(-17px) scaleY(0.58) scaleX(1.40);}
+  53%   {               transform:translateY(-79vh)  translateX(-24px) scaleY(1.28) scaleX(0.78);}
+  58%   {               transform:translateY(-84vh)  translateX(-26px) scaleY(1.06) scaleX(0.95);}
+  72%   {               transform:translateY(-86vh)  translateX(-28px) scaleY(1)    scaleX(1);   }
+  75%   {               transform:translateY(-87vh)  translateX(-22px) scaleY(0.58) scaleX(1.40);}
+  78%   {               transform:translateY(-107vh) translateX(-29px) scaleY(1.28) scaleX(0.78);}
+  83%   {               transform:translateY(-112vh) translateX(-30px) scaleY(1.06) scaleX(0.95);}
+  90%   {opacity:0.15;  transform:translateY(-114vh) translateX(-30px) scaleY(1)    scaleX(1);   }
+  96%   {opacity:0;     transform:translateY(-115vh) translateX(-30px) scaleY(1)    scaleX(1);   }
+  100%  {opacity:0;     transform:translateY(-120vh) translateX(-30px) scaleY(1)    scaleX(1);   }
+}
+@keyframes rise-c-lg {
+  0%    { opacity:0;    transform:translateY(0)      translateX(0)    scaleY(1)    scaleX(1);   }
+  2%    { opacity:0.18; transform:translateY(0)      translateX(5px)  scaleY(0.58) scaleX(1.40);}
+  5%    {               transform:translateY(-20vh)  translateX(14px) scaleY(1.28) scaleX(0.78);}
+  10%   {               transform:translateY(-25vh)  translateX(9px)  scaleY(1.06) scaleX(0.95);}
+  22%   {               transform:translateY(-27vh)  translateX(7px)  scaleY(1)    scaleX(1);   }
+  25%   {               transform:translateY(-28vh)  translateX(11px) scaleY(0.58) scaleX(1.40);}
+  28%   {               transform:translateY(-47vh)  translateX(-4px) scaleY(1.28) scaleX(0.78);}
+  33%   {               transform:translateY(-52vh)  translateX(-8px) scaleY(1.06) scaleX(0.95);}
+  47%   {               transform:translateY(-54vh)  translateX(-9px) scaleY(1)    scaleX(1);   }
+  50%   {               transform:translateY(-55vh)  translateX(5px)  scaleY(0.58) scaleX(1.40);}
+  53%   {               transform:translateY(-74vh)  translateX(13px) scaleY(1.28) scaleX(0.78);}
+  58%   {               transform:translateY(-79vh)  translateX(16px) scaleY(1.06) scaleX(0.95);}
+  72%   {               transform:translateY(-81vh)  translateX(17px) scaleY(1)    scaleX(1);   }
+  75%   {               transform:translateY(-82vh)  translateX(11px) scaleY(0.58) scaleX(1.40);}
+  78%   {               transform:translateY(-101vh) translateX(18px) scaleY(1.28) scaleX(0.78);}
+  83%   {               transform:translateY(-106vh) translateX(20px) scaleY(1.06) scaleX(0.95);}
+  90%   {opacity:0.15;  transform:translateY(-108vh) translateX(20px) scaleY(1)    scaleX(1);   }
+  96%   {opacity:0;     transform:translateY(-109vh) translateX(20px) scaleY(1)    scaleX(1);   }
+  100%  {opacity:0;     transform:translateY(-120vh) translateX(20px) scaleY(1)    scaleX(1);   }
+}
+
+.animate-rise-a-sm { animation: rise-a-sm linear infinite; transform-origin: center top; }
+.animate-rise-b-sm { animation: rise-b-sm linear infinite; transform-origin: center top; }
+.animate-rise-c-sm { animation: rise-c-sm linear infinite; transform-origin: center top; }
+.animate-rise-a-lg { animation: rise-a-lg linear infinite; transform-origin: center top; }
+.animate-rise-b-lg { animation: rise-b-lg linear infinite; transform-origin: center top; }
+.animate-rise-c-lg { animation: rise-c-lg linear infinite; transform-origin: center top; }
+/* aliases para compatibilidade */
+.animate-rise-a    { animation: rise-a-lg linear infinite; transform-origin: center top; }
+.animate-rise-b    { animation: rise-b-lg linear infinite; transform-origin: center top; }
+.animate-rise-c    { animation: rise-c-lg linear infinite; transform-origin: center top; }
+.animate-rise-hero { animation: rise-a-lg linear infinite; transform-origin: center top; }
+
+/*
+  bell-pulse: squash/stretch da bell sincronizado com o impulso.
+  Ciclo de 7.5s = ~4 pulsos num rise-a de 30s.
+  Cada pulso: squash rápido (5%) → stretch (15%) → recovery lento (80%).
+  transform-origin no <g> é definido inline (base da bell).
+*/
+@keyframes bell-pulse {
+  0%    { transform: scaleX(1)    scaleY(1);    }
+  3%    { transform: scaleX(1.38) scaleY(0.60); }
+  15%   { transform: scaleX(0.82) scaleY(1.26); }
+  45%   { transform: scaleX(0.99) scaleY(1.03); }
+  98%   { transform: scaleX(1)    scaleY(1);    }
+  100%  { transform: scaleX(1)    scaleY(1);    }
+}
+
+.bell-pulse {
+  animation: bell-pulse 7.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ── Utility classes ── */
+
+.animate-float-a {
+  animation: float-a 6s ease-in-out infinite;
+}
+
+.animate-float-b {
+  animation: float-b 8s ease-in-out infinite;
+}
+
+.animate-float-c {
+  animation: float-c 5s ease-in-out infinite;
+}
+
+.animate-tentacle {
+  animation: tentacle-wave 2.4s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+.animate-tentacle-alt {
+  animation: tentacle-wave-alt 2.8s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.animate-pulse-glow-fast {
+  animation: pulse-glow-fast 2s ease-in-out infinite;
+}
+
+.animate-bell {
+  animation: bell-breathe 3s ease-in-out infinite;
+  transform-origin: center top;
+}
+
+.animate-inner-glow {
+  animation: inner-glow-pulse 3s ease-in-out infinite;
+}
+
+.animate-badge-blink {
+  animation: badge-blink 4s ease-in-out infinite;
+}
+
+.animate-scan-line {
+  animation: scan-line 3s ease-in-out infinite;
+}
+
+.animate-radar-sweep {
+  animation: radar-sweep 4s linear infinite;
+}
+
+.animate-grid-pulse {
+  animation: grid-pulse 4s ease-in-out infinite;
+}
+
+/* ── Jellyfish glow backdrop ── */
+
+.jelly-glow {
+  box-shadow:
+    0 0 30px 10px rgba(147, 51, 234, 0.35),
+    0 0 60px 20px rgba(6, 182, 212, 0.15),
+    inset 0 0 20px rgba(168, 85, 247, 0.2);
+}
+
+.jelly-glow-sm {
+  box-shadow:
+    0 0 20px 6px rgba(147, 51, 234, 0.28),
+    0 0 40px 12px rgba(6, 182, 212, 0.1),
+    inset 0 0 14px rgba(168, 85, 247, 0.15);
+}
+
+.jelly-glow-xs {
+  box-shadow:
+    0 0 12px 4px rgba(147, 51, 234, 0.22),
+    inset 0 0 8px rgba(168, 85, 247, 0.1);
+}
+
+.panel-glow {
+  box-shadow:
+    0 0 0 1px rgba(147, 51, 234, 0.2),
+    0 0 20px rgba(147, 51, 234, 0.08),
+    inset 0 0 30px rgba(147, 51, 234, 0.04);
+}
+
+.text-glow-purple {
+  text-shadow: 0 0 20px rgba(147, 51, 234, 0.6);
+}
+
+.text-glow-cyan {
+  text-shadow: 0 0 20px rgba(6, 182, 212, 0.5);
+}
