@@ -160,13 +160,13 @@ const externalLinks = [
   },
   {
     label: "GitHub",
-    href: "https://github.com/fewcompany/archradar",
+    href: "https://github.com/negra1m/archradar",
     color: "#e2e8f0",
     hoverBorder: "rgba(226,232,240,0.4)",
   },
   {
     label: "Discord",
-    href: "https://discord.gg/fewcompany",
+    href: "https://discord.gg/7YQfUMSyXq",
     color: "#5865f2",
     hoverBorder: "rgba(88,101,242,0.5)",
   },
@@ -193,24 +193,6 @@ export default function Home() {
         }}
       />
 
-      {/* header */}
-      <header
-        className="relative z-20 flex items-center justify-between px-6 py-2 shrink-0"
-        style={{ borderBottom: "1px solid rgba(147,51,234,0.1)" }}
-      >
-        <div>
-          <div className="font-mono text-xs font-semibold tracking-widest" style={{ color: "rgba(168,85,247,0.9)" }}>
-            FEW company
-          </div>
-          <div className="font-mono text-[10px]" style={{ color: "rgba(148,163,184,0.4)" }}>
-            Strategy + Design &amp; Code
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.7)" }} />
-          <span className="font-mono text-xs" style={{ color: "rgba(148,163,184,0.5)" }}>v1.4.3</span>
-        </div>
-      </header>
 
       <div className="relative z-10 flex-1 grid grid-cols-[1fr_320px] min-h-0">
 
@@ -300,12 +282,23 @@ export default function Home() {
 
       {/* footer */}
       <footer
-        className="relative z-20 flex items-center justify-center py-1.5 shrink-0"
+        className="relative z-20 flex items-center justify-center py-2 shrink-0 gap-1.5"
         style={{ borderTop: "1px solid rgba(147,51,234,0.08)" }}
       >
         <span className="font-mono text-xs" style={{ color: "rgba(148,163,184,0.25)" }}>
-          © 2026 Few Company · AGPL-3.0
+          powered by
         </span>
+        <a
+          href="https://fewcompany.com.br"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-xs transition-colors duration-200"
+          style={{ color: "rgba(168,85,247,0.5)" }}
+          onMouseEnter={e => (e.currentTarget.style.color = "rgba(168,85,247,0.9)")}
+          onMouseLeave={e => (e.currentTarget.style.color = "rgba(168,85,247,0.5)")}
+        >
+          Few Company
+        </a>
       </footer>
     </main>
   );

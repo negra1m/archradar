@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
   title: "archradar — Motor de Inteligência Arquitetural | Few Company",
   description:
     "Escaneie seu projeto frontend, detecte complexidade e dependências circulares, e corrija o que importa. CLI npm da Few Company.",
