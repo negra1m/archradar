@@ -175,8 +175,8 @@ const externalLinks = [
 export default function Home() {
   return (
     <main
-      className="relative w-screen min-h-screen md:h-screen md:overflow-hidden flex flex-col"
-      style={{ background: "#0a0a0f" }}
+      className="relative w-screen flex flex-col md:h-screen md:overflow-hidden"
+      style={{ minHeight: "100svh", background: "#0a0a0f" }}
     >
       {/* medusas em toda a tela, atrás de tudo */}
       <JellyfishScene />
@@ -195,7 +195,7 @@ export default function Home() {
 
 
       {/* desktop: 2 colunas | mobile: coluna única com scroll */}
-      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto md:overflow-hidden md:grid md:grid-cols-[1fr_320px]">
+      <div className="relative z-10 flex flex-col md:flex-1 md:grid md:grid-cols-[1fr_320px] md:min-h-0">
 
         {/* HERO */}
         <div className="flex flex-col justify-center px-6 py-10 gap-5 md:px-14 md:py-0">
