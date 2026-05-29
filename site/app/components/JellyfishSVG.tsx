@@ -1,6 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useRef } from "react";
+import { waterCurrent } from "./useWaterCurrent";
 
 type Props = {
   size?: number;
@@ -76,11 +77,14 @@ function bellEdgeY(bx: number, bW: number, bH: number): number {
   return bH * (1.02 - t * 0.40);
 }
 
-// Path de tentáculo com curva "S" — ondulação de água
+// Path de tentáculo com curva "S" — ondulação de água + deflexão da corrente.
+// `deflAt(depth)` devolve o deslocamento X (em userspace do SVG) que a corrente
+// impõe naquela profundidade [0..1] — já com o lag por profundidade aplicado fora.
 function makeTentPath(
   bx: number, len: number, drift: number,
   bW: number, bH: number, bW0: number,
-  wavePhase = 0
+  wavePhase = 0,
+  deflAt: (depth: number) => number = () => 0
 ): string {
   const ratio = bW / bW0;
   const sbx = bx * Math.pow(ratio, 0.7);
@@ -89,16 +93,22 @@ function makeTentPath(
 
   const wave = Math.sin(wavePhase * Math.PI * 2) * sd * 0.35;
 
-  const p1x = sbx + sd * 0.40 + wave;
+  const p1x = sbx + sd * 0.40 + wave        + deflAt(0.22);
   const p1y = ty0 + len * 0.22;
-  const p2x = sbx - sd * 0.30 - wave * 0.7;
+  const p2x = sbx - sd * 0.30 - wave * 0.7  + deflAt(0.48);
   const p2y = ty0 + len * 0.48;
-  const p3x = sbx + sd * 0.55 + wave * 0.5;
+  const p3x = sbx + sd * 0.55 + wave * 0.5  + deflAt(0.76);
   const p3y = ty0 + len * 0.76;
-  const endX = sbx + sd;
+  const endX = sbx + sd                     + deflAt(1.0);
   const endY = ty0 + len;
+  const midx = (p2x + p3x) / 2;
 
-  return `M ${sbx},${ty0} C ${p1x},${p1y} ${p2x},${p2y} ${(p2x+p3x)/2},${(p2y+p3y)/2} S ${p3x},${p3y} ${endX},${endY}`;
+  return `M ${sbx},${ty0} C ${p1x},${p1y} ${p2x},${p2y} ${midx},${(p2y+p3y)/2} S ${p3x},${p3y} ${endX},${endY}`;
+}
+
+// interpolação linear simples (para frames do pulso e easing)
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
 }
 
 export default function JellyfishSVG({ size = 80, id, pulseDur = "1.2s", animationDelay = "0s" }: Props) {
@@ -154,6 +164,119 @@ export default function JellyfishSVG({ size = 80, id, pulseDur = "1.2s", animati
   const vbY =  -6 * s;
   const vbW = 180 * s;
   const vbH = 440 * s;
+
+  // ── Tentáculos dirigidos por JS (pulso + corrente do mouse) ──────────────
+  const tentGroupRef = useRef<SVGGElement | null>(null);
+
+  // valores estáveis usados dentro do rAF (refs pra não recriar o efeito)
+  const tentRef = useRef(tentacles);
+  const framesRef = useRef(bellFrames);
+  tentRef.current = tentacles;
+  framesRef.current = bellFrames;
+
+  const pulseMs = Math.max(200, parseFloat(pulseDur) * 1000 || 1200);
+  const delayMs = (parseFloat(animationDelay) || 0) * 1000;
+  const tentColor = `url(#tentGrad-${id})`;
+  const tentWidth = Math.max(0.5, 0.75 * s);
+
+  useEffect(() => {
+    const g = tentGroupRef.current;
+    if (!g) return;
+    if (typeof window === "undefined") return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const tents = tentRef.current;
+    const frames = framesRef.current;
+    const bW0 = frames[0].bW;
+
+    // cria um <path> por tentáculo (uma vez)
+    const paths: SVGPathElement[] = tents.map(() => {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("stroke", tentColor);
+      p.setAttribute("stroke-width", String(tentWidth));
+      p.setAttribute("stroke-linecap", "round");
+      p.setAttribute("fill", "none");
+      g.appendChild(p);
+      return p;
+    });
+
+    // buffer de histórico da corrente (X) p/ lag por profundidade — o "chicote".
+    // ~0.6s de histórico a 60fps; cada ponta lê a corrente de N frames atrás.
+    const HIST = 40;
+    const histX = new Float32Array(HIST);
+    let head = 0;
+
+    // ganho da corrente em userspace: o quanto a deflexão entorta (escala c/ tamanho)
+    const GAIN = 46 * s;
+
+    // por tentáculo: offset de fase do pulso e do lag (faz eles se cruzarem)
+    const meta = tents.map((t, i) => ({
+      phaseOffset: (i * 0.13) % 1,
+      lagBias: 0.35 + ((i * 7) % 11) / 11,        // 0.35..1.35 — atraso distinto
+      swirl: ((i % 2) * 2 - 1),                    // ±1 — lado preferencial
+      bx: t.bx, len: t.len, drift: t.drift,
+    }));
+
+    const startT = performance.now();
+    let raf = 0;
+
+    const draw = (now: number) => {
+      // grava a corrente atual no buffer
+      head = (head + 1) % HIST;
+      histX[head] = reduce ? 0 : waterCurrent.x;
+
+      // lê a corrente de `back` frames atrás (lag), interpolando
+      const currentBack = (back: number) => {
+        const f = Math.max(0, Math.min(HIST - 1.001, back));
+        const i0 = Math.floor(f);
+        const idx0 = (head - i0 + HIST) % HIST;
+        const idx1 = (head - i0 - 1 + HIST) % HIST;
+        return lerp(histX[idx0], histX[idx1], f - i0);
+      };
+
+      const tCycle = ((now - startT - delayMs) % pulseMs + pulseMs) % pulseMs / pulseMs;
+
+      for (let i = 0; i < paths.length; i++) {
+        const m = meta[i];
+        // fase do pulso (ondulação) — mesma cadência de antes
+        const wavePhase = (tCycle + m.phaseOffset) % 1;
+
+        // interpola o frame do pulso (bW/bH) ao longo do ciclo, como o SMIL fazia
+        const keyT = [0, 0.08, 0.22, 0.45, 1];
+        let k = 0;
+        while (k < keyT.length - 1 && tCycle > keyT[k + 1]) k++;
+        const span = keyT[k + 1] - keyT[k] || 1;
+        const lt = (tCycle - keyT[k]) / span;
+        const fA = frames[k];
+        const fB = frames[Math.min(k + 1, frames.length - 1)];
+        const bW = lerp(fA.bW, fB.bW, lt);
+        const bH = lerp(fA.bH, fB.bH, lt);
+
+        // deflexão por profundidade: ponta lê corrente mais atrasada que a base.
+        // depth² → base quase imóvel, ponta entorta muito. lagBias por tentáculo
+        // e swirl alternado fazem os fios se cruzarem em vez de andar juntos.
+        const deflAt = (depth: number) => {
+          const back = depth * (HIST * 0.7) * m.lagBias;
+          const c = currentBack(back);
+          return c * GAIN * depth * depth * (0.85 + 0.15 * m.swirl);
+        };
+
+        paths[i].setAttribute(
+          "d",
+          makeTentPath(m.bx, m.len, m.drift, bW, bH, bW0, wavePhase, deflAt)
+        );
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    raf = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(raf);
+      paths.forEach((p) => p.remove());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pulseMs, delayMs, s, tentColor, tentWidth, id]);
 
   return (
     <svg
@@ -213,31 +336,9 @@ export default function JellyfishSVG({ size = 80, id, pulseDur = "1.2s", animati
         </linearGradient>
       </defs>
 
-      {/* TENTÁCULOS */}
-      <g opacity="0.85">
-        {tentacles.map((t, i) => {
-          const phaseOffset = (i * 0.13) % 1;
-          const wavePhases = [0, 0.25, 0.5, 0.75, 1].map(p => (p + phaseOffset) % 1);
-          const tentPaths = bellFrames
-            .map((f, idx) => makeTentPath(t.bx, t.len, t.drift, f.bW, f.bH, bellW, wavePhases[idx]));
-          const d0 = makeTentPath(t.bx, t.len, t.drift, bellW, bellH, bellW, phaseOffset);
-          return (
-            <path key={i} d={d0}
-              stroke={`url(#tentGrad-${id})`}
-              strokeWidth={Math.max(0.5, 0.75 * s)}
-              strokeLinecap="round"
-            >
-              <animate attributeName="d"
-                dur={pulseDur} begin={animationDelay} repeatCount="indefinite"
-                calcMode="spline"
-                keyTimes="0; 0.08; 0.22; 0.45; 1"
-                keySplines="0.3 0 0.7 1; 0.2 0 0.4 1; 0 0 1 1; 0.5 0 0.8 1"
-                values={tentPaths.join(";")}
-              />
-            </path>
-          );
-        })}
-      </g>
+      {/* TENTÁCULOS — desenhados por JS (rAF): pulso + deflexão da corrente do
+          mouse com lag por profundidade (chicote defasado → entrelaçam e relaxam) */}
+      <g opacity="0.85" ref={tentGroupRef} />
 
       {/* MANÚBRIO */}
       <g filter={`url(#glowSm-${id})`}>
