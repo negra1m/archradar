@@ -3,10 +3,9 @@
 import React from "react";
 import JellyfishSVG from "./JellyfishSVG";
 
-// size → duração: maior = mais devagar
-function dur(size: number): string {
-  const d = Math.round(20 + ((size - 12) / (160 - 12)) * 52);
-  return `${d}s`;
+// pulseDur por tamanho
+function pulseDurSec(size: number): number {
+  return 1.0 + ((size - 12) / (160 - 12)) * 2.2;
 }
 
 // size → classe de animação (sm < 55, lg >= 55)
@@ -30,22 +29,40 @@ export default function JellyfishScene() {
     <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
       <div className="absolute inset-0" style={{ background: "rgba(10,10,15,0.72)" }} />
 
-      {jellies.map((j) => (
-        <div
-          key={j.id}
-          className={`absolute select-none pointer-events-none ${animClass(j.size, j.dir)}`}
-          style={{
-            animationDelay:    j.delay,
-            animationDuration: dur(j.size),
-            opacity:           j.opacity,
-            left:              j.left,
-            bottom:            "-200px",
-            filter:            "drop-shadow(0 0 10px #a855f7) drop-shadow(0 0 24px #7c3aed)",
-          }}
-        >
-          <JellyfishSVG size={j.size} id={j.id} />
-        </div>
-      ))}
+      {jellies.map((j) => {
+        const pulse = pulseDurSec(j.size);
+        // riseDur múltiplo EXATO do pulso → drift e bob nunca defasam
+        const pulsesPerCrossing = 9;
+        const riseDur = `${(pulse * pulsesPerCrossing).toFixed(2)}s`;
+        const pulseDur = `${pulse.toFixed(2)}s`;
+        const bobClass = j.size < 55 ? "jelly-bob-sm" : "jelly-bob-lg";
+        return (
+          // CAMADA EXTERNA — travessia lenta baixo→topo + fade (riseDur)
+          <div
+            key={j.id}
+            className={`absolute select-none pointer-events-none ${animClass(j.size, j.dir)}`}
+            style={{
+              animationDelay:    j.delay,
+              animationDuration: riseDur,
+              opacity:           j.opacity,
+              left:              j.left,
+              bottom:            "-200px",
+            }}
+          >
+            {/* CAMADA INTERNA — gesto do pulso stop-and-go (pulseDur), em fase com o SVG */}
+            <div
+              className={bobClass}
+              style={{
+                animationDelay:    j.delay,
+                animationDuration: pulseDur,
+                filter:            "drop-shadow(0 0 10px #a855f7) drop-shadow(0 0 24px #7c3aed)",
+              }}
+            >
+              <JellyfishSVG size={j.size} id={j.id} pulseDur={pulseDur} animationDelay={j.delay} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

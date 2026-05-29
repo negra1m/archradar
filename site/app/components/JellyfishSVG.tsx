@@ -5,78 +5,155 @@ import React from "react";
 type Props = {
   size?: number;
   id: string;
+  pulseDur?: string;
+  animationDelay?: string;
 };
 
-// Retorna o y da borda da bell para um dado x (−bellW..+bellW)
-// A bell tem formato: lados em bH*0.62, centro inferior em bH*1.02
-// Interpolação linear simplificada entre os pontos de controle
+// Bell path perfeitamente simétrico.
+// Estratégia: traça do CENTRO-BAIXO (0, edgeY(0)) → lóbulos subindo até a borda
+// direita → ombro até o topo (0,0). O lado esquerdo é esse mesmo contorno com X
+// negado, percorrido na ordem inversa. Assim os dois lados são reflexos exatos e
+// os pontos de junção (centro e topo) coincidem.
+function makeBellPath(bW: number, bH: number, edgeDrop = 0.40, centerRise = 0.02) {
+  const ld = bH * 0.055;
+  const edgeY = (absX: number) => {
+    const t = absX / bW;
+    return bH * (1.0 + centerRise - t * edgeDrop);
+  };
+  const halfLobes = 4;
+  const lw = bW / halfLobes;
+  const f = (n: number) => n.toFixed(3);
+
+  // Meio-contorno DIREITO, do centro-baixo até o topo:
+  //   começa em (0, edgeY(0))
+  //   4 lóbulos: x=0 → x=bW (subindo a borda)
+  //   ombro: borda direita → topo (0,0)
+  const yBorda = edgeY(bW);                     // Y onde lóbulos encontram o ombro
+  const cmds: Array<{ q?: [number, number, number, number]; c?: [number, number, number, number, number, number] }> = [];
+  for (let i = 0; i < halfLobes; i++) {
+    const x0 = i * lw;
+    const x1 = (i + 1) * lw;
+    const yl = Math.max(edgeY(x0), edgeY(x1)) + ld; // ponto de controle do lóbulo (pra baixo)
+    const xm = (x0 + x1) / 2;
+    cmds.push({ q: [xm, yl, x1, edgeY(x1)] });
+  }
+  // ombro direito: de (bW, yBorda) sobe até (0,0)
+  cmds.push({ c: [bW, bH * 0.28, bW * 0.55, 0, 0, 0] });
+
+  // Lado DIREITO: centro-baixo → borda direita → topo (na ordem de cmds[]).
+  const right = cmds
+    .map((c) =>
+      c.q
+        ? ` Q ${f(c.q[0])},${f(c.q[1])} ${f(c.q[2])},${f(c.q[3])}`
+        : ` C ${f(c.c![0])},${f(c.c![1])} ${f(c.c![2])},${f(c.c![3])} ${f(c.c![4])},${f(c.c![5])}`
+    )
+    .join("");
+
+  // Lado ESQUERDO: o mesmo contorno com X negado, percorrido do topo ao centro.
+  // O ponto-fim de cada segmento espelhado é o ponto-INÍCIO do segmento direito
+  // correspondente (= ponto-fim do segmento anterior em cmds[]).
+  const startOf = (i: number): [number, number] => {
+    if (i === 0) return [0, edgeY(0)];           // o 1º cmd parte do centro-baixo
+    const p = cmds[i - 1];
+    return p.q ? [p.q[2], p.q[3]] : [p.c![4], p.c![5]];
+  };
+  const left = cmds
+    .map((c, i) => ({ c, end: startOf(i) }))
+    .reverse()
+    .map(({ c, end }) =>
+      c.q
+        ? ` Q ${f(-c.q[0])},${f(c.q[1])} ${f(-end[0])},${f(end[1])}`
+        : ` C ${f(-c.c![2])},${f(c.c![3])} ${f(-c.c![0])},${f(c.c![1])} ${f(-end[0])},${f(end[1])}`
+    )
+    .join("");
+
+  // Traça: topo → (esquerdo) → centro → (direito) → topo.
+  return `M 0,0${left}${right} Z`;
+}
+
 function bellEdgeY(bx: number, bW: number, bH: number): number {
-  const t = Math.abs(bx) / bW; // 0 = centro, 1 = extremidade
-  // centro: y ≈ bH * 1.02, borda: y ≈ bH * 0.62
+  const t = Math.abs(bx) / bW;
   return bH * (1.02 - t * 0.40);
 }
 
-// Gera o path da bell dado bellW e bellH
-function makeBellPath(bW: number, bH: number) {
-  return [
-    `M 0,0`,
-    `C ${bW*0.55},0 ${bW},${bH*0.28} ${bW},${bH*0.62}`,
-    `C ${bW},${bH*0.88} ${bW*0.7},${bH} ${bW*0.42},${bH}`,
-    `C ${bW*0.2},${bH} ${bW*0.08},${bH*1.04} 0,${bH*1.02}`,
-    `C -${bW*0.08},${bH*1.04} -${bW*0.2},${bH} -${bW*0.42},${bH}`,
-    `C -${bW*0.7},${bH} -${bW},${bH*0.88} -${bW},${bH*0.62}`,
-    `C -${bW},${bH*0.28} -${bW*0.55},0 0,0 Z`,
-  ].join(" ");
+// Path de tentáculo com curva "S" — ondulação de água
+function makeTentPath(
+  bx: number, len: number, drift: number,
+  bW: number, bH: number, bW0: number,
+  wavePhase = 0
+): string {
+  const ratio = bW / bW0;
+  const sbx = bx * Math.pow(ratio, 0.7);
+  const ty0 = bellEdgeY(sbx, bW, bH);
+  const sd = drift * Math.pow(ratio, 0.5);
+
+  const wave = Math.sin(wavePhase * Math.PI * 2) * sd * 0.35;
+
+  const p1x = sbx + sd * 0.40 + wave;
+  const p1y = ty0 + len * 0.22;
+  const p2x = sbx - sd * 0.30 - wave * 0.7;
+  const p2y = ty0 + len * 0.48;
+  const p3x = sbx + sd * 0.55 + wave * 0.5;
+  const p3y = ty0 + len * 0.76;
+  const endX = sbx + sd;
+  const endY = ty0 + len;
+
+  return `M ${sbx},${ty0} C ${p1x},${p1y} ${p2x},${p2y} ${(p2x+p3x)/2},${(p2y+p3y)/2} S ${p3x},${p3y} ${endX},${endY}`;
 }
 
-export default function JellyfishSVG({ size = 80, id }: Props) {
+export default function JellyfishSVG({ size = 80, id, pulseDur = "1.2s", animationDelay = "0s" }: Props) {
   const s = size / 100;
 
-  const bellW = 64 * s; // maior
-  const bellH = 58 * s; // um pouco mais alto (mais baixo visualmente = mais espaço pro manúbrio)
+  const bellW = 62 * s;
+  const bellH = 50 * s;
 
-  // squash menos agressivo pra tentáculos não saírem das laterais
-  const bellRest    = makeBellPath(bellW,        bellH);
-  const bellSquash  = makeBellPath(bellW * 1.22, bellH * 0.72);
-  const bellStretch = makeBellPath(bellW * 0.88, bellH * 1.18);
-  const bellSettle  = makeBellPath(bellW * 0.99, bellH * 1.02);
+  // Ciclo sincronizado com o bob (keyTimes 0;0.08;0.22;0.45;1):
+  //   0%   rest   — neutra (emenda com fim do ciclo)
+  //   8%   open   — terminou de abrir, ainda PARADA
+  //   22%  close  — fecha+stretch, ARRANCA a subida
+  //   45%  rest   — inércia: relaxou de volta ao normal (nem aberta nem fechada)
+  //   100% rest   — segue neutra, reabrindo suave p/ o próximo (emenda no 0%)
+  const bellRest    = makeBellPath(bellW,        bellH,        0.40, 0.02);
+  const bellOpen    = makeBellPath(bellW * 1.18, bellH * 0.78, 0.55, 0.05);
+  const bellClose   = makeBellPath(bellW * 0.78, bellH * 1.42, 0.10, -0.04);
 
-  // Manúbrio — tubo central saindo da base da bell
-  const manuY0 = bellH * 0.70;
-  const manuH  = 30 * s;
-  const manuW  = 6  * s;
+  const bellFrames = [
+    { bW: bellW,        bH: bellH        },
+    { bW: bellW * 1.18, bH: bellH * 0.78 },
+    { bW: bellW * 0.78, bH: bellH * 1.42 },
+    { bW: bellW,        bH: bellH        },
+    { bW: bellW,        bH: bellH        },
+  ];
 
-  // Braços orais — saem do manúbrio, franjas ondulantes
+  const manuY0 = bellH * 0.72;
+  const manuH  = 22 * s;
+  const manuW  = 5  * s;
+
   const oralArms = [
-    { x: -9*s,  w: 13*s, len: 52*s, delay: "0s",   dur: "4.2s", twist:  9*s },
-    { x:  2*s,  w: 17*s, len: 66*s, delay: "0.7s", dur: "3.8s", twist: -11*s },
-    { x: -13*s, w: 11*s, len: 44*s, delay: "1.3s", dur: "4.5s", twist:  7*s  },
-    { x:  10*s, w: 9*s,  len: 57*s, delay: "0.4s", dur: "3.5s", twist: -8*s  },
+    { x: -11*s, w: 16*s, len: 65*s, delay: "0s",   dur: "4.2s", twist:  11*s },
+    { x:   3*s, w: 20*s, len: 80*s, delay: "0.6s", dur: "3.8s", twist: -15*s },
+    { x: -15*s, w: 13*s, len: 55*s, delay: "1.3s", dur: "4.6s", twist:   9*s },
+    { x:  12*s, w: 15*s, len: 70*s, delay: "0.3s", dur: "3.5s", twist: -10*s },
+    { x:  -3*s, w: 18*s, len: 60*s, delay: "1.8s", dur: "4.0s", twist:  13*s },
   ];
 
-  // Tentáculos — saem da BORDA da bell, fixos em y=bellH
-  // drift proporcional ao bellW para curvar independente do tamanho
-  // bx máximo em 0.80 para ficarem dentro da bell mesmo no squash (1.22x)
-  // 0.80 * 1.22 = 0.976 — ainda dentro
   const tentacles = [
-    { bx: -bellW*0.80, len: 200*s, drift:  bellW*0.45, delay: "0s",   dur: "3.2s" },
-    { bx: -bellW*0.60, len: 270*s, drift: -bellW*0.35, delay: "1.1s", dur: "2.8s" },
-    { bx: -bellW*0.38, len: 230*s, drift:  bellW*0.50, delay: "0.3s", dur: "3.6s" },
-    { bx: -bellW*0.16, len: 310*s, drift: -bellW*0.28, delay: "0.8s", dur: "2.5s" },
-    { bx:  bellW*0.06, len: 350*s, drift:  bellW*0.38, delay: "0.5s", dur: "3.0s" },
-    { bx:  bellW*0.26, len: 290*s, drift: -bellW*0.48, delay: "1.4s", dur: "3.3s" },
-    { bx:  bellW*0.46, len: 250*s, drift:  bellW*0.32, delay: "0.2s", dur: "2.7s" },
-    { bx:  bellW*0.64, len: 320*s, drift: -bellW*0.52, delay: "0.9s", dur: "3.8s" },
-    { bx:  bellW*0.80, len: 195*s, drift:  bellW*0.38, delay: "0.6s", dur: "3.1s" },
+    { bx: -bellW*0.80, len: 240*s, drift:  bellW*0.48 },
+    { bx: -bellW*0.62, len: 290*s, drift: -bellW*0.38 },
+    { bx: -bellW*0.44, len: 260*s, drift:  bellW*0.55 },
+    { bx: -bellW*0.24, len: 310*s, drift: -bellW*0.30 },
+    { bx: -bellW*0.06, len: 330*s, drift:  bellW*0.42 },
+    { bx:  bellW*0.12, len: 320*s, drift: -bellW*0.45 },
+    { bx:  bellW*0.30, len: 280*s, drift:  bellW*0.40 },
+    { bx:  bellW*0.48, len: 300*s, drift: -bellW*0.50 },
+    { bx:  bellW*0.65, len: 270*s, drift:  bellW*0.36 },
+    { bx:  bellW*0.80, len: 245*s, drift: -bellW*0.44 },
   ];
 
-  // tentY0 por tentáculo — segue a borda real da bell
-
-
-  const vbX = -80 * s;
+  const vbX = -90 * s;
   const vbY =  -6 * s;
-  const vbW = 160 * s;
-  const vbH = 420 * s;
+  const vbW = 180 * s;
+  const vbH = 440 * s;
 
   return (
     <svg
@@ -88,11 +165,9 @@ export default function JellyfishSVG({ size = 80, id }: Props) {
       style={{ overflow: "visible" }}
     >
       <defs>
-        <filter id={`glow-${id}`} x="-60%" y="-30%" width="220%" height="180%">
-          <feGaussianBlur stdDeviation={2 * s} result="b1" />
-          <feGaussianBlur stdDeviation={7 * s} result="b2" />
+        <filter id={`glow-${id}`} x="-10%" y="-5%" width="120%" height="115%">
+          <feGaussianBlur stdDeviation={1.0 * s} result="b1" />
           <feMerge>
-            <feMergeNode in="b2" />
             <feMergeNode in="b1" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
@@ -107,14 +182,14 @@ export default function JellyfishSVG({ size = 80, id }: Props) {
         </filter>
 
         <radialGradient id={`bellFill-${id}`} cx="40%" cy="28%" r="72%">
-          <stop offset="0%"   stopColor="#f0abfc" stopOpacity="0.75" />
-          <stop offset="40%"  stopColor="#c084fc" stopOpacity="0.55" />
-          <stop offset="75%"  stopColor="#7c3aed" stopOpacity="0.40" />
-          <stop offset="100%" stopColor="#4338ca" stopOpacity="0.28" />
+          <stop offset="0%"   stopColor="#f0abfc" stopOpacity="0.78" />
+          <stop offset="35%"  stopColor="#c084fc" stopOpacity="0.58" />
+          <stop offset="70%"  stopColor="#7c3aed" stopOpacity="0.40" />
+          <stop offset="100%" stopColor="#4338ca" stopOpacity="0.25" />
         </radialGradient>
 
         <radialGradient id={`bellSheen-${id}`} cx="34%" cy="20%" r="44%">
-          <stop offset="0%"   stopColor="#ffffff" stopOpacity="0.30" />
+          <stop offset="0%"   stopColor="#ffffff" stopOpacity="0.32" />
           <stop offset="100%" stopColor="#e879f9" stopOpacity="0"    />
         </radialGradient>
 
@@ -124,55 +199,57 @@ export default function JellyfishSVG({ size = 80, id }: Props) {
         </linearGradient>
 
         <linearGradient id={`armGrad-${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#a78bfa" stopOpacity="0.85" />
-          <stop offset="45%"  stopColor="#06b6d4" stopOpacity="0.55" />
-          <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.05" />
+          <stop offset="0%"   stopColor="#67e8f9" stopOpacity="0.90" />
+          <stop offset="30%"  stopColor="#22d3ee" stopOpacity="0.70" />
+          <stop offset="65%"  stopColor="#818cf8" stopOpacity="0.45" />
+          <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.05" />
         </linearGradient>
 
         <linearGradient id={`tentGrad-${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#c084fc" stopOpacity="0.90" />
-          <stop offset="45%"  stopColor="#7c3aed" stopOpacity="0.50" />
+          <stop offset="0%"   stopColor="#c084fc" stopOpacity="0.88" />
+          <stop offset="40%"  stopColor="#7c3aed" stopOpacity="0.52" />
           <stop offset="80%"  stopColor="#06b6d4" stopOpacity="0.22" />
           <stop offset="100%" stopColor="#06b6d4" stopOpacity="0"    />
         </linearGradient>
-
-        <clipPath id={`bellClip-${id}`}>
-          <path d={bellRest} />
-        </clipPath>
       </defs>
 
-      {/* ── TENTÁCULOS — atrás da bell ── */}
-      <g filter={`url(#glow-${id})`} opacity="0.88">
+      {/* TENTÁCULOS */}
+      <g opacity="0.85">
         {tentacles.map((t, i) => {
-          const ty0  = bellEdgeY(t.bx, bellW, bellH);
-          const y1   = ty0 + t.len;
-          const cx1  = t.bx + t.drift * 0.55;
-          const cy1  = ty0 + t.len * 0.33;
-          const cx2  = t.bx - t.drift * 0.38;
-          const cy2  = ty0 + t.len * 0.68;
-          const x1   = t.bx + t.drift;
-          const d0 = `M ${t.bx},${ty0} C ${cx1},${cy1} ${cx2},${cy2} ${x1},${y1}`;
-          const d1 = `M ${t.bx},${ty0} C ${cx1+t.drift*0.75},${cy1+2.5*s} ${cx2-t.drift*0.55},${cy2-2*s} ${x1-t.drift*0.28},${y1}`;
+          const phaseOffset = (i * 0.13) % 1;
+          const wavePhases = [0, 0.25, 0.5, 0.75, 1].map(p => (p + phaseOffset) % 1);
+          const tentPaths = bellFrames
+            .map((f, idx) => makeTentPath(t.bx, t.len, t.drift, f.bW, f.bH, bellW, wavePhases[idx]));
+          const d0 = makeTentPath(t.bx, t.len, t.drift, bellW, bellH, bellW, phaseOffset);
           return (
-            <path key={i} d={d0} stroke={`url(#tentGrad-${id})`} strokeWidth={Math.max(0.8, 1.4*s)} strokeLinecap="round">
-              <animate attributeName="d" dur={t.dur} repeatCount="indefinite" begin={t.delay}
-                calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1"
-                values={`${d0};${d1};${d0}`} />
+            <path key={i} d={d0}
+              stroke={`url(#tentGrad-${id})`}
+              strokeWidth={Math.max(0.5, 0.75 * s)}
+              strokeLinecap="round"
+            >
+              <animate attributeName="d"
+                dur={pulseDur} begin={animationDelay} repeatCount="indefinite"
+                calcMode="spline"
+                keyTimes="0; 0.08; 0.22; 0.45; 1"
+                keySplines="0.3 0 0.7 1; 0.2 0 0.4 1; 0 0 1 1; 0.5 0 0.8 1"
+                values={tentPaths.join(";")}
+              />
             </path>
           );
         })}
       </g>
 
-      {/* ── MANÚBRIO — atrás da bell ── */}
+      {/* MANÚBRIO */}
       <g filter={`url(#glowSm-${id})`}>
-        <rect x={-manuW/2} y={manuY0} width={manuW} height={manuH} rx={manuW/2} fill={`url(#manuGrad-${id})`} />
+        <rect x={-manuW/2} y={manuY0} width={manuW} height={manuH}
+          rx={manuW/2} fill={`url(#manuGrad-${id})`} />
       </g>
 
-      {/* ── BRAÇOS ORAIS — atrás da bell ── */}
+      {/* BRAÇOS ORAIS */}
       <g filter={`url(#glowSm-${id})`}>
         {oralArms.map((a, i) => {
           const y0 = manuY0 + manuH * 0.25;
-          const fringes = 5;
+          const fringes = 7;
           const buildPath = (twist: number) => {
             let d = `M ${a.x},${y0}`;
             for (let f = 0; f < fringes; f++) {
@@ -180,35 +257,95 @@ export default function JellyfishSVG({ size = 80, id }: Props) {
               const fy1 = y0 + ((f + 1) / fringes) * a.len;
               const fym = (fy0 + fy1) / 2;
               const side = f % 2 === 0 ? 1 : -1;
-              d += ` Q ${a.x + side * a.w + twist * 0.15},${fym} ${a.x + twist * 0.28 * (f / fringes)},${fy1}`;
+              const amp = 1 + (f / fringes) * 0.5;
+              d += ` Q ${a.x + side * a.w * amp + twist * 0.12},${fym} ${a.x + twist * 0.22 * (f / fringes)},${fy1}`;
             }
             return d;
           };
           const d0 = buildPath(a.twist);
-          const d1 = buildPath(a.twist * 1.5);
+          const d1 = buildPath(a.twist * 1.6);
           const d2 = buildPath(-a.twist * 1.2);
           return (
-            <path key={i} d={d0} stroke={`url(#armGrad-${id})`}
-              strokeWidth={a.w * 0.5} strokeLinecap="round" strokeLinejoin="round"
-              fill="none" strokeOpacity="0.72">
+            <path key={i} d={d0}
+              stroke={`url(#armGrad-${id})`}
+              strokeWidth={a.w * 0.48}
+              strokeLinecap="round" strokeLinejoin="round"
+              fill="none" strokeOpacity="0.80"
+            >
               <animate attributeName="d" dur={a.dur} repeatCount="indefinite" begin={a.delay}
-                calcMode="spline" keySplines="0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1"
+                calcMode="spline"
+                keySplines="0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1"
                 values={`${d0};${d1};${d2};${d1};${d0}`} />
             </path>
           );
         })}
       </g>
 
-      {/* ── BELL — na frente de tudo ── */}
-      <g
-        filter={`url(#glow-${id})`}
-        className="bell-pulse"
-        style={{ transformOrigin: `0px ${bellH}px` }}
+      {/* GLOW INFERIOR */}
+      <ellipse
+        cx="0"
+        cy={bellH * 1.20}
+        rx={bellW * 0.55}
+        ry={bellH * 0.14}
+        fill="rgba(147,51,234,0.2)"
+        style={{ filter: `blur(${6 * s}px)` }}
       >
-        <path d={bellRest} fill={`url(#bellFill-${id})`} stroke="#c084fc" strokeWidth={0.85 * s} strokeOpacity="0.50" />
-        <path d={bellRest} fill={`url(#bellSheen-${id})`} clipPath={`url(#bellClip-${id})`} />
-      </g>
+        <animate attributeName="rx"
+          dur={pulseDur} begin={animationDelay} repeatCount="indefinite"
+          calcMode="spline"
+          keyTimes="0; 0.08; 0.22; 0.45; 1"
+          keySplines="0.3 0 0.7 1; 0.2 0 0.4 1; 0 0 1 1; 0.5 0 0.8 1"
+          values={`${bellW*0.55};${bellW*0.80};${bellW*0.20};${bellW*0.30};${bellW*0.55}`}
+        />
+        <animate attributeName="ry"
+          dur={pulseDur} begin={animationDelay} repeatCount="indefinite"
+          calcMode="spline"
+          keyTimes="0; 0.08; 0.22; 0.45; 1"
+          keySplines="0.3 0 0.7 1; 0.2 0 0.4 1; 0 0 1 1; 0.5 0 0.8 1"
+          values={`${bellH*0.14};${bellH*0.22};${bellH*0.05};${bellH*0.08};${bellH*0.14}`}
+        />
+        <animate attributeName="cy"
+          dur={pulseDur} begin={animationDelay} repeatCount="indefinite"
+          calcMode="spline"
+          keyTimes="0; 0.08; 0.22; 0.45; 1"
+          keySplines="0.3 0 0.7 1; 0.2 0 0.4 1; 0 0 1 1; 0.5 0 0.8 1"
+          values={`${bellH*1.20};${bellH*1.30};${bellH*1.90};${bellH*1.55};${bellH*1.20}`}
+        />
+        <animate attributeName="fill-opacity"
+          dur={pulseDur} begin={animationDelay} repeatCount="indefinite"
+          calcMode="spline"
+          keyTimes="0; 0.08; 0.22; 0.45; 1"
+          keySplines="0.3 0 0.7 1; 0.2 0 0.4 1; 0 0 1 1; 0.5 0 0.8 1"
+          values="1; 1.4; 0.1; 0.5; 1"
+        />
+      </ellipse>
 
+      {/* BELL — na frente */}
+      <g>
+        <path d={bellRest}
+          fill={`url(#bellFill-${id})`}
+          stroke="#c084fc"
+          strokeWidth={0.9 * s}
+          strokeOpacity="0.55"
+        >
+          <animate attributeName="d"
+            dur={pulseDur} begin={animationDelay} repeatCount="indefinite"
+            calcMode="spline"
+            keyTimes="0; 0.08; 0.22; 0.45; 1"
+            keySplines="0.3 0 0.7 1; 0.2 0 0.4 1; 0 0 1 1; 0.5 0 0.8 1"
+            values={`${bellRest};${bellOpen};${bellClose};${bellRest};${bellRest}`}
+          />
+        </path>
+        <path d={bellRest} fill={`url(#bellSheen-${id})`}>
+          <animate attributeName="d"
+            dur={pulseDur} begin={animationDelay} repeatCount="indefinite"
+            calcMode="spline"
+            keyTimes="0; 0.08; 0.22; 0.45; 1"
+            keySplines="0.3 0 0.7 1; 0.2 0 0.4 1; 0 0 1 1; 0.5 0 0.8 1"
+            values={`${bellRest};${bellOpen};${bellClose};${bellRest};${bellRest}`}
+          />
+        </path>
+      </g>
     </svg>
   );
 }

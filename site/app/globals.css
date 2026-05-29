@@ -8,8 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-poppins), var(--font-inter), system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", monospace;
 }
 
 * {
@@ -18,9 +18,14 @@
 
 html,
 body {
-  overflow: hidden;
-  height: 100%;
   width: 100%;
+}
+
+@media (min-width: 768px) {
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
 }
 
 body {
@@ -202,228 +207,69 @@ body {
   }
 }
 
-/* ── Jellyfish pulse locomotion ──────────────────────────────────────────────
-   Biomecânica real (Aurelia aurita):
-   Power stroke (contração): 22% do ciclo — rápida — bell amassa largo/baixo
-   Recovery stroke (relaxamento): 78% do ciclo — lenta — bell estica alto/estreito
-   Translação Y só durante o power stroke; recovery é deriva quase estática.
-   Razão contração:relaxamento = 1:3.5 (t_c=0.4s, t_r=1.4s por pulso real)
+/* ── Jellyfish locomotion: DUAS CAMADAS, um relógio só ────────────────────────
+   Camada EXTERNA (.jelly-drift): travessia lenta e contínua baixo→topo + fade.
+     Período = riseDur (= pulseDur × N). Linear, só translateY + opacity.
+   Camada INTERNA (.jelly-bob): o GESTO do pulso stop-and-go, no MESMO pulseDur do
+     SVG. Sobe na fase de fechamento/inércia e volta — é o empurrão visível.
+   A FORMA (squash/stretch) é 100% do SVG. Aqui nada de scale.
+
+   Timeline do bob (1 pulso), alinhado aos keyTimes do SVG (0; 0.08; 0.22; 0.45; 1):
+     0%  → 8%  : aberta e PARADA           — bob em 0
+     8%  → 22% : fecha+stretch, ARRANCA    — bob sobe rápido (8% = 20% do trecho)
+     22% → 45% : inércia                   — bob no pico, desacelerando
+     45% →100% : relaxa abrindo            — bob desce de volta suave (recuo da inércia)
    ──────────────────────────────────────────────────────────────────────── */
 
-/*
-  Ciclo de 4 pulsos. Cada pulso = 25% do total.
-  Power stroke = primeiros 22% do pulso → 5.5% do total por pulso.
-  Recovery     = restante 78% do pulso  → 19.5% do total por pulso.
-
-  Bell relaxada (repouso):  scaleY(1)    scaleX(1)
-  Bell no power stroke:     scaleY(0.62) scaleX(1.35)  ← amassa MAIS que antes
-  Bell no pico do impulso:  scaleY(1.25) scaleX(0.80)  ← esticada pra cima
-  (a contração é tão rápida que passa pelo ponto neutro com momentum)
-*/
-
-/*
-  Cada pulso = 25% do ciclo total.
-  Estrutura de um pulso (ex: P1 = 0%→25%):
-    0%→2%    repouso final da deriva anterior
-    2%→2.5%  squash rápido (bell amassa — 0.5% do ciclo)
-    2.5%→5%  power stroke (bell estica, sobe rápido — 2.5%)
-    5%→25%   deriva inercial: bell abre, Y continua subindo mas desacelerando
-              Y vai de -18vh (pico) até -22vh (quasi-parada) com ease-out
-              — a maior parte do deslocamento Y está no início da deriva
-*/
-
-/*
-  Inércia reforçada: após o impulso o Y avança 80% nos primeiros 30% da deriva,
-  os 20% restantes distribuídos pelos 70% finais — quase para antes do próximo pulso.
-  Cada pulso = 25% do ciclo.
-    2%→5%   squash + power stroke   (Y avança ~20vh de uma vez)
-    5%→10%  deriva forte            (Y +5vh — ainda tem momentum)
-    10%→18% deriva fraca            (Y +1.5vh — desacelerando rápido)
-    18%→25% deriva residual         (Y +0.3vh — quase parado)
-*/
-
-/*
-  6 keyframes: 3 direções × 2 distâncias (sm=pequenas, lg=grandes).
-  Valores absolutos em vh — sem custom properties.
-  Inércia real: impulso dá 18-20vh, deriva decai 5→1.5→0.3vh.
-  Entre pulsos: deriva mínima de 2-3vh para nunca parar completamente.
-*/
-
-/* ── PEQUENAS (sm): viagem total ~45vh ── */
-@keyframes rise-a-sm {
-  0%    { opacity:0;    transform:translateY(0)      translateX(0)    scaleY(1)    scaleX(1);   }
-  2%    { opacity:0.18; transform:translateY(0)      translateX(1px)  scaleY(0.58) scaleX(1.40);}
-  5%    {               transform:translateY(-10vh)  translateX(4px)  scaleY(1.28) scaleX(0.78);}
-  10%   {               transform:translateY(-13vh)  translateX(6px)  scaleY(1.06) scaleX(0.95);}
-  22%   {               transform:translateY(-14vh)  translateX(7px)  scaleY(1)    scaleX(1);   }
-  25%   {               transform:translateY(-15vh)  translateX(5px)  scaleY(0.58) scaleX(1.40);}
-  28%   {               transform:translateY(-24vh)  translateX(9px)  scaleY(1.28) scaleX(0.78);}
-  33%   {               transform:translateY(-27vh)  translateX(10px) scaleY(1.06) scaleX(0.95);}
-  47%   {               transform:translateY(-28vh)  translateX(11px) scaleY(1)    scaleX(1);   }
-  50%   {               transform:translateY(-29vh)  translateX(9px)  scaleY(0.58) scaleX(1.40);}
-  53%   {               transform:translateY(-37vh)  translateX(13px) scaleY(1.28) scaleX(0.78);}
-  58%   {               transform:translateY(-40vh)  translateX(14px) scaleY(1.06) scaleX(0.95);}
-  72%   {               transform:translateY(-41vh)  translateX(15px) scaleY(1)    scaleX(1);   }
-  75%   {               transform:translateY(-42vh)  translateX(12px) scaleY(0.58) scaleX(1.40);}
-  78%   {               transform:translateY(-50vh)  translateX(16px) scaleY(1.28) scaleX(0.78);}
-  83%   {               transform:translateY(-53vh)  translateX(17px) scaleY(1.06) scaleX(0.95);}
-  90%   {opacity:0.15;  transform:translateY(-54vh)  translateX(17px) scaleY(1)    scaleX(1);   }
-  96%   {opacity:0;     transform:translateY(-55vh)  translateX(17px) scaleY(1)    scaleX(1);   }
-  100%  {opacity:0;     transform:translateY(-115vh) translateX(17px) scaleY(1)    scaleX(1);   }
+/* GESTO do pulso — amplitude pequena (o avanço real é da camada de drift).
+   sm e lg só diferem na amplitude do empurrão. */
+@keyframes pulse-bob-sm {
+  0%   { transform: translateY(0);      }
+  8%   { transform: translateY(0);      }
+  22%  { transform: translateY(-4.2vh); }
+  45%  { transform: translateY(-5vh);   }
+  100% { transform: translateY(0);      }
 }
-@keyframes rise-b-sm {
-  0%    { opacity:0;    transform:translateY(0)      translateX(0)     scaleY(1)    scaleX(1);   }
-  2%    { opacity:0.18; transform:translateY(0)      translateX(-1px)  scaleY(0.58) scaleX(1.40);}
-  5%    {               transform:translateY(-10vh)  translateX(-5px)  scaleY(1.28) scaleX(0.78);}
-  10%   {               transform:translateY(-13vh)  translateX(-7px)  scaleY(1.06) scaleX(0.95);}
-  22%   {               transform:translateY(-14vh)  translateX(-8px)  scaleY(1)    scaleX(1);   }
-  25%   {               transform:translateY(-15vh)  translateX(-6px)  scaleY(0.58) scaleX(1.40);}
-  28%   {               transform:translateY(-24vh)  translateX(-10px) scaleY(1.28) scaleX(0.78);}
-  33%   {               transform:translateY(-27vh)  translateX(-12px) scaleY(1.06) scaleX(0.95);}
-  47%   {               transform:translateY(-28vh)  translateX(-13px) scaleY(1)    scaleX(1);   }
-  50%   {               transform:translateY(-29vh)  translateX(-10px) scaleY(0.58) scaleX(1.40);}
-  53%   {               transform:translateY(-37vh)  translateX(-14px) scaleY(1.28) scaleX(0.78);}
-  58%   {               transform:translateY(-40vh)  translateX(-16px) scaleY(1.06) scaleX(0.95);}
-  72%   {               transform:translateY(-41vh)  translateX(-17px) scaleY(1)    scaleX(1);   }
-  75%   {               transform:translateY(-42vh)  translateX(-13px) scaleY(0.58) scaleX(1.40);}
-  78%   {               transform:translateY(-50vh)  translateX(-18px) scaleY(1.28) scaleX(0.78);}
-  83%   {               transform:translateY(-53vh)  translateX(-19px) scaleY(1.06) scaleX(0.95);}
-  90%   {opacity:0.15;  transform:translateY(-54vh)  translateX(-19px) scaleY(1)    scaleX(1);   }
-  96%   {opacity:0;     transform:translateY(-55vh)  translateX(-19px) scaleY(1)    scaleX(1);   }
-  100%  {opacity:0;     transform:translateY(-115vh) translateX(-19px) scaleY(1)    scaleX(1);   }
-}
-@keyframes rise-c-sm {
-  0%    { opacity:0;    transform:translateY(0)      translateX(0)    scaleY(1)    scaleX(1);   }
-  2%    { opacity:0.18; transform:translateY(0)      translateX(3px)  scaleY(0.58) scaleX(1.40);}
-  5%    {               transform:translateY(-9vh)   translateX(8px)  scaleY(1.28) scaleX(0.78);}
-  10%   {               transform:translateY(-12vh)  translateX(5px)  scaleY(1.06) scaleX(0.95);}
-  22%   {               transform:translateY(-13vh)  translateX(4px)  scaleY(1)    scaleX(1);   }
-  25%   {               transform:translateY(-14vh)  translateX(7px)  scaleY(0.58) scaleX(1.40);}
-  28%   {               transform:translateY(-22vh)  translateX(-2px) scaleY(1.28) scaleX(0.78);}
-  33%   {               transform:translateY(-25vh)  translateX(-4px) scaleY(1.06) scaleX(0.95);}
-  47%   {               transform:translateY(-26vh)  translateX(-5px) scaleY(1)    scaleX(1);   }
-  50%   {               transform:translateY(-27vh)  translateX(3px)  scaleY(0.58) scaleX(1.40);}
-  53%   {               transform:translateY(-35vh)  translateX(8px)  scaleY(1.28) scaleX(0.78);}
-  58%   {               transform:translateY(-38vh)  translateX(10px) scaleY(1.06) scaleX(0.95);}
-  72%   {               transform:translateY(-39vh)  translateX(11px) scaleY(1)    scaleX(1);   }
-  75%   {               transform:translateY(-40vh)  translateX(7px)  scaleY(0.58) scaleX(1.40);}
-  78%   {               transform:translateY(-48vh)  translateX(12px) scaleY(1.28) scaleX(0.78);}
-  83%   {               transform:translateY(-51vh)  translateX(13px) scaleY(1.06) scaleX(0.95);}
-  90%   {opacity:0.15;  transform:translateY(-52vh)  translateX(13px) scaleY(1)    scaleX(1);   }
-  96%   {opacity:0;     transform:translateY(-53vh)  translateX(13px) scaleY(1)    scaleX(1);   }
-  100%  {opacity:0;     transform:translateY(-115vh) translateX(13px) scaleY(1)    scaleX(1);   }
+@keyframes pulse-bob-lg {
+  0%   { transform: translateY(0);      }
+  8%   { transform: translateY(0);      }
+  22%  { transform: translateY(-7vh);   }
+  45%  { transform: translateY(-8.4vh); }
+  100% { transform: translateY(0);      }
 }
 
-/* ── GRANDES (lg): viagem total ~95vh ── */
-@keyframes rise-a-lg {
-  0%    { opacity:0;    transform:translateY(0)      translateX(0)    scaleY(1)    scaleX(1);   }
-  2%    { opacity:0.18; transform:translateY(0)      translateX(2px)  scaleY(0.58) scaleX(1.40);}
-  5%    {               transform:translateY(-22vh)  translateX(7px)  scaleY(1.28) scaleX(0.78);}
-  10%   {               transform:translateY(-27vh)  translateX(10px) scaleY(1.06) scaleX(0.95);}
-  22%   {               transform:translateY(-29vh)  translateX(11px) scaleY(1)    scaleX(1);   }
-  25%   {               transform:translateY(-30vh)  translateX(8px)  scaleY(0.58) scaleX(1.40);}
-  28%   {               transform:translateY(-51vh)  translateX(14px) scaleY(1.28) scaleX(0.78);}
-  33%   {               transform:translateY(-56vh)  translateX(16px) scaleY(1.06) scaleX(0.95);}
-  47%   {               transform:translateY(-58vh)  translateX(17px) scaleY(1)    scaleX(1);   }
-  50%   {               transform:translateY(-59vh)  translateX(14px) scaleY(0.58) scaleX(1.40);}
-  53%   {               transform:translateY(-79vh)  translateX(19px) scaleY(1.28) scaleX(0.78);}
-  58%   {               transform:translateY(-84vh)  translateX(21px) scaleY(1.06) scaleX(0.95);}
-  72%   {               transform:translateY(-86vh)  translateX(22px) scaleY(1)    scaleX(1);   }
-  75%   {               transform:translateY(-87vh)  translateX(18px) scaleY(0.58) scaleX(1.40);}
-  78%   {               transform:translateY(-107vh) translateX(23px) scaleY(1.28) scaleX(0.78);}
-  83%   {               transform:translateY(-112vh) translateX(24px) scaleY(1.06) scaleX(0.95);}
-  90%   {opacity:0.15;  transform:translateY(-114vh) translateX(24px) scaleY(1)    scaleX(1);   }
-  96%   {opacity:0;     transform:translateY(-115vh) translateX(24px) scaleY(1)    scaleX(1);   }
-  100%  {opacity:0;     transform:translateY(-120vh) translateX(24px) scaleY(1)    scaleX(1);   }
+/* deriva lateral lenta independente (senoidal), por direção */
+@keyframes drift-up-a {
+  0%   { transform: translateY(0)      translateX(0);    opacity: 0;    }
+  6%   { opacity: 0.18; }
+  50%  { transform: translateY(-58vh)  translateX(14px);  }
+  92%  { opacity: 0.18; }
+  100% { transform: translateY(-118vh) translateX(8px);   opacity: 0;   }
 }
-@keyframes rise-b-lg {
-  0%    { opacity:0;    transform:translateY(0)      translateX(0)     scaleY(1)    scaleX(1);   }
-  2%    { opacity:0.18; transform:translateY(0)      translateX(-3px)  scaleY(0.58) scaleX(1.40);}
-  5%    {               transform:translateY(-22vh)  translateX(-10px) scaleY(1.28) scaleX(0.78);}
-  10%   {               transform:translateY(-27vh)  translateX(-14px) scaleY(1.06) scaleX(0.95);}
-  22%   {               transform:translateY(-29vh)  translateX(-15px) scaleY(1)    scaleX(1);   }
-  25%   {               transform:translateY(-30vh)  translateX(-11px) scaleY(0.58) scaleX(1.40);}
-  28%   {               transform:translateY(-51vh)  translateX(-18px) scaleY(1.28) scaleX(0.78);}
-  33%   {               transform:translateY(-56vh)  translateX(-20px) scaleY(1.06) scaleX(0.95);}
-  47%   {               transform:translateY(-58vh)  translateX(-22px) scaleY(1)    scaleX(1);   }
-  50%   {               transform:translateY(-59vh)  translateX(-17px) scaleY(0.58) scaleX(1.40);}
-  53%   {               transform:translateY(-79vh)  translateX(-24px) scaleY(1.28) scaleX(0.78);}
-  58%   {               transform:translateY(-84vh)  translateX(-26px) scaleY(1.06) scaleX(0.95);}
-  72%   {               transform:translateY(-86vh)  translateX(-28px) scaleY(1)    scaleX(1);   }
-  75%   {               transform:translateY(-87vh)  translateX(-22px) scaleY(0.58) scaleX(1.40);}
-  78%   {               transform:translateY(-107vh) translateX(-29px) scaleY(1.28) scaleX(0.78);}
-  83%   {               transform:translateY(-112vh) translateX(-30px) scaleY(1.06) scaleX(0.95);}
-  90%   {opacity:0.15;  transform:translateY(-114vh) translateX(-30px) scaleY(1)    scaleX(1);   }
-  96%   {opacity:0;     transform:translateY(-115vh) translateX(-30px) scaleY(1)    scaleX(1);   }
-  100%  {opacity:0;     transform:translateY(-120vh) translateX(-30px) scaleY(1)    scaleX(1);   }
+@keyframes drift-up-b {
+  0%   { transform: translateY(0)      translateX(0);     opacity: 0;   }
+  6%   { opacity: 0.18; }
+  50%  { transform: translateY(-58vh)  translateX(-18px); }
+  92%  { opacity: 0.18; }
+  100% { transform: translateY(-118vh) translateX(-10px); opacity: 0;   }
 }
-@keyframes rise-c-lg {
-  0%    { opacity:0;    transform:translateY(0)      translateX(0)    scaleY(1)    scaleX(1);   }
-  2%    { opacity:0.18; transform:translateY(0)      translateX(5px)  scaleY(0.58) scaleX(1.40);}
-  5%    {               transform:translateY(-20vh)  translateX(14px) scaleY(1.28) scaleX(0.78);}
-  10%   {               transform:translateY(-25vh)  translateX(9px)  scaleY(1.06) scaleX(0.95);}
-  22%   {               transform:translateY(-27vh)  translateX(7px)  scaleY(1)    scaleX(1);   }
-  25%   {               transform:translateY(-28vh)  translateX(11px) scaleY(0.58) scaleX(1.40);}
-  28%   {               transform:translateY(-47vh)  translateX(-4px) scaleY(1.28) scaleX(0.78);}
-  33%   {               transform:translateY(-52vh)  translateX(-8px) scaleY(1.06) scaleX(0.95);}
-  47%   {               transform:translateY(-54vh)  translateX(-9px) scaleY(1)    scaleX(1);   }
-  50%   {               transform:translateY(-55vh)  translateX(5px)  scaleY(0.58) scaleX(1.40);}
-  53%   {               transform:translateY(-74vh)  translateX(13px) scaleY(1.28) scaleX(0.78);}
-  58%   {               transform:translateY(-79vh)  translateX(16px) scaleY(1.06) scaleX(0.95);}
-  72%   {               transform:translateY(-81vh)  translateX(17px) scaleY(1)    scaleX(1);   }
-  75%   {               transform:translateY(-82vh)  translateX(11px) scaleY(0.58) scaleX(1.40);}
-  78%   {               transform:translateY(-101vh) translateX(18px) scaleY(1.28) scaleX(0.78);}
-  83%   {               transform:translateY(-106vh) translateX(20px) scaleY(1.06) scaleX(0.95);}
-  90%   {opacity:0.15;  transform:translateY(-108vh) translateX(20px) scaleY(1)    scaleX(1);   }
-  96%   {opacity:0;     transform:translateY(-109vh) translateX(20px) scaleY(1)    scaleX(1);   }
-  100%  {opacity:0;     transform:translateY(-120vh) translateX(20px) scaleY(1)    scaleX(1);   }
+@keyframes drift-up-c {
+  0%   { transform: translateY(0)      translateX(0);     opacity: 0;   }
+  6%   { opacity: 0.18; }
+  50%  { transform: translateY(-58vh)  translateX(-6px);  }
+  92%  { opacity: 0.18; }
+  100% { transform: translateY(-118vh) translateX(12px);  opacity: 0;   }
 }
 
-.animate-rise-a-sm { animation: rise-a-sm linear infinite; transform-origin: center top; }
-.animate-rise-b-sm { animation: rise-b-sm linear infinite; transform-origin: center top; }
-.animate-rise-c-sm { animation: rise-c-sm linear infinite; transform-origin: center top; }
-.animate-rise-a-lg { animation: rise-a-lg linear infinite; transform-origin: center top; }
-.animate-rise-b-lg { animation: rise-b-lg linear infinite; transform-origin: center top; }
-.animate-rise-c-lg { animation: rise-c-lg linear infinite; transform-origin: center top; }
-/* aliases para compatibilidade */
-.animate-rise-a    { animation: rise-a-lg linear infinite; transform-origin: center top; }
-.animate-rise-b    { animation: rise-b-lg linear infinite; transform-origin: center top; }
-.animate-rise-c    { animation: rise-c-lg linear infinite; transform-origin: center top; }
-.animate-rise-hero { animation: rise-a-lg linear infinite; transform-origin: center top; }
+/* camada externa: travessia + fade (period = riseDur, linear) */
+.animate-rise-a, .animate-rise-a-sm, .animate-rise-a-lg { animation: drift-up-a linear infinite; }
+.animate-rise-b, .animate-rise-b-sm, .animate-rise-b-lg { animation: drift-up-b linear infinite; }
+.animate-rise-c, .animate-rise-c-sm, .animate-rise-c-lg { animation: drift-up-c linear infinite; }
+.animate-rise-hero { animation: drift-up-a linear infinite; }
 
-/*
-  bell-pulse: squash/stretch da bell sincronizado com o impulso.
-  Ciclo de 7.5s = ~4 pulsos num rise-a de 30s.
-  Cada pulso: squash rápido (5%) → stretch (15%) → recovery lento (80%).
-  transform-origin no <g> é definido inline (base da bell).
-*/
-@keyframes bell-pulse {
-  0%    { transform: scaleX(1)    scaleY(1);    }
-  3%    { transform: scaleX(1.38) scaleY(0.60); }
-  15%   { transform: scaleX(0.82) scaleY(1.26); }
-  45%   { transform: scaleX(0.99) scaleY(1.03); }
-  98%   { transform: scaleX(1)    scaleY(1);    }
-  100%  { transform: scaleX(1)    scaleY(1);    }
-}
-
-.bell-pulse {
-  animation: bell-pulse 7.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes spin-z {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-
-@keyframes spin-y {
-  from { transform: rotateY(0deg); }
-  to   { transform: rotateY(360deg); }
-}
-
-.spin-y {
-  animation: spin-y 6s linear infinite;
-  transform-style: preserve-3d;
-}
+/* camada interna: gesto do pulso (period = pulseDur) */
+.jelly-bob-sm { animation: pulse-bob-sm cubic-bezier(0.4,0,0.55,1) infinite; transform-origin: center top; }
+.jelly-bob-lg { animation: pulse-bob-lg cubic-bezier(0.4,0,0.55,1) infinite; transform-origin: center top; }
 
 /* ── Utility classes ── */
 
@@ -518,3 +364,4 @@ body {
 .text-glow-cyan {
   text-shadow: 0 0 20px rgba(6, 182, 212, 0.5);
 }
+
