@@ -31,7 +31,7 @@ body {
 body {
   background: #0a0a0f;
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
 }
 
 /* ── Jellyfish animations ── */
