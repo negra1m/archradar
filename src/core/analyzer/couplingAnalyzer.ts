@@ -1,7 +1,6 @@
-import { Project } from 'ts-morph';
-import path from 'path';
 import { CouplingResult } from '../../types/index.js';
 import { topK } from '../../utils/topK.js';
+import { AnalysisContext, resolveContext } from './context.js';
 
 /**
  * Single source of truth for the "high coupling" threshold.
@@ -17,26 +16,22 @@ import { topK } from '../../utils/topK.js';
  */
 export const HIGH_COUPLING_THRESHOLD = 12;
 
-export async function analyzeCoupling(projectPath: string): Promise<CouplingResult> {
-  const project = new Project({ skipAddingFilesFromTsConfig: true });
-
-  project.addSourceFilesAtPaths([
-    path.join(projectPath, '**/*.ts'),
-    path.join(projectPath, '**/*.tsx'),
-    `!${path.join(projectPath, '**/node_modules/**')}`,
-    `!${path.join(projectPath, '**/dist/**')}`,
-    `!${path.join(projectPath, '**/.next/**')}`,
-  ]);
+export async function analyzeCoupling(
+  projectPath: string,
+  ctx?: AnalysisContext
+): Promise<CouplingResult> {
+  const { sourceFiles, rel } = resolveContext(projectPath, ctx);
 
   const highCouplingFiles: CouplingResult['highCouplingFiles'] = [];
   const perFileImports: CouplingResult['perFileImports'] = [];
   let totalImports = 0;
   let fileCount = 0;
 
-  for (const sourceFile of project.getSourceFiles()) {
+  for (const sourceFile of sourceFiles) {
     const imports = sourceFile.getImportDeclarations();
     const importCount = imports.length;
-    const filePath = path.relative(projectPath, sourceFile.getFilePath());
+    // POSIX-normalize so paths match across Windows and Linux.
+    const filePath = rel(sourceFile.getFilePath());
 
     totalImports += importCount;
     fileCount++;
@@ -47,8 +42,17 @@ export async function analyzeCoupling(projectPath: string): Promise<CouplingResu
     }
   }
 
-  const top10 = topK(highCouplingFiles, 10, (f) => f.imports);
-  top10.sort((a, b) => b.imports - a.imports);
+  // Stable order for the full list — it feeds the premium payload and any
+  // downstream ranking; readdir/glob order must not leak into the output.
+  perFileImports.sort((a, b) => b.imports - a.imports || a.file.localeCompare(b.file));
+
+  // Total order: imports desc, ties broken by file path.
+  const top10 = topK(
+    highCouplingFiles,
+    10,
+    (f) => f.imports,
+    (a, b) => a.file.localeCompare(b.file)
+  );
 
   return {
     avgCoupling: fileCount > 0 ? Math.round(totalImports / fileCount) : 0,
