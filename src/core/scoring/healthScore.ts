@@ -4,6 +4,9 @@ import {
   HealthScore,
   Grade,
   ScoreBreakdown,
+  ScoreExplanation,
+  ScoreComponentExplanation,
+  ScorePenaltyExplanation,
   FileInfo,
 } from '../../types/index.js';
 import { HIGH_COUPLING_THRESHOLD } from '../analyzer/couplingAnalyzer.js';
@@ -290,7 +293,7 @@ function sizeCeiling(totalFiles: number): number {
 export function calculateHealthScore(
   scan: ScanResult,
   analysis: AnalysisResult
-): { health: HealthScore; breakdown: ScoreBreakdown } {
+): { health: HealthScore; breakdown: ScoreBreakdown; explanation: ScoreExplanation } {
   const fileSizeScore   = scoreFileSize(scan.files.avgLinesPerFile);
   const criticalScore   = scoreCriticalFiles(scan.files.criticalFiles.length, scan.files.totalFiles);
   const structureScore  = scoreStructure(scan.structure.hasRecognizedPattern, scan.structure.folders.length);
@@ -330,24 +333,46 @@ export function calculateHealthScore(
   //
   // Total: 105%. When modularity or tests is null, its weight is redistributed
   // proportionally across the remaining components via the totalWeight divide.
-  const components: Array<{ value: number; weight: number }> = [
-    { value: fileSizeScore,   weight: 0.10 },
-    { value: criticalScore,   weight: 0.15 },
-    { value: structureScore,  weight: 0.05 },
-    { value: depsScore,       weight: 0.10 },
-    { value: couplingScore,   weight: 0.15 },
-    { value: complexityScore, weight: 0.20 },
-    { value: worstFileScore,  weight: 0.10 },
+  // v1.5 — Resolve the calibration anchors once so the explanation can cite
+  // the exact threshold each component scored against. These are the same
+  // values scoreCoupling/scoreComplexity/gradeFromScore resolve internally —
+  // we read them here purely for transparency, not to re-score.
+  const fwk = getThresholdsForFramework(fwkName);
+  const couplingAnchor = fwk.highCoupling || HIGH_COUPLING_THRESHOLD;
+  const complexityAnchor = fwk.complexity || COMPLEXITY_THRESHOLD;
+  const anchorSuffix =
+    fwk.source === 'community'
+      ? `p90 ${fwkName} (N=${fwk.sampleSize ?? '?'})`
+      : 'fallback (no community data)';
+
+  // Each row carries its display metadata + the anchor it scored against.
+  // `weight` here is the nominal weight; `contribution` is computed after
+  // renormalization below so the rows always sum to the weighted average.
+  const rows: Array<{
+    key: keyof ScoreBreakdown;
+    label: string;
+    value: number;
+    weight: number;
+    anchor: string | null;
+  }> = [
+    { key: 'fileSize',      label: 'File size',      value: fileSizeScore,   weight: 0.10, anchor: null },
+    { key: 'criticalFiles', label: 'Critical files', value: criticalScore,   weight: 0.15, anchor: null },
+    { key: 'structure',     label: 'Structure',      value: structureScore,  weight: 0.05, anchor: null },
+    { key: 'dependencies',  label: 'Dependencies',   value: depsScore,       weight: 0.10, anchor: null },
+    { key: 'coupling',      label: 'Coupling',       value: couplingScore,   weight: 0.15, anchor: `coupling ${couplingAnchor} imports/file — ${anchorSuffix}` },
+    { key: 'complexity',    label: 'Complexity',     value: complexityScore, weight: 0.20, anchor: `cognitive complexity ${complexityAnchor} — ${anchorSuffix}` },
+    { key: 'worstFile',     label: 'Worst file',     value: worstFileScore,  weight: 0.10, anchor: null },
   ];
   if (modScore !== null) {
-    components.push({ value: modScore, weight: 0.10 });
+    rows.push({ key: 'modularity', label: 'Modularity', value: modScore, weight: 0.10, anchor: null });
   }
   if (testsScore !== null) {
-    components.push({ value: testsScore, weight: 0.10 });
+    rows.push({ key: 'tests', label: 'Tests (proxy)', value: testsScore, weight: 0.10, anchor: null });
   }
-  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
-  const weightedSum = components.reduce((sum, c) => sum + c.value * c.weight, 0);
-  const rawScore = Math.round(weightedSum / totalWeight);
+
+  const totalWeight = rows.reduce((sum, r) => sum + r.weight, 0);
+  const weightedSum = rows.reduce((sum, r) => sum + r.value * r.weight, 0) / totalWeight;
+  const rawScore = Math.round(weightedSum);
 
   // v1.4 Sprint 6 #12 — Tech debt penalty (up to -10pts).
   const debtPenalty = techDebtPenalty(analysis.techDebt);
@@ -358,9 +383,59 @@ export function calculateHealthScore(
   // Apply size ceiling: tiny projects can't earn the top grades.
   const ceiling = sizeCeiling(scan.files.totalFiles);
   const score = Math.min(afterPenalty, ceiling);
+  const grade = gradeFromScore(score, fwkName);
+
+  // v1.5 — Build the audit trail from the SAME numbers used above. The
+  // `contribution` of each row is its renormalized share so the rows sum to
+  // `weightedSum`. tests/explain.test.ts asserts the identity holds.
+  const components: ScoreComponentExplanation[] = rows.map((r) => ({
+    key: r.key,
+    label: r.label,
+    value: r.value,
+    weight: r.weight,
+    contribution: Math.round(((r.value * r.weight) / totalWeight) * 10) / 10,
+    anchor: r.anchor,
+  }));
+
+  const penalties: ScorePenaltyExplanation[] = [];
+  if (debtPenalty > 0) {
+    penalties.push({
+      label: 'Tech debt',
+      points: debtPenalty,
+      reason: `${analysis.techDebt.densityPerKLoc.toFixed(1)} markers/KLOC`,
+    });
+  }
+  if (flowPenalty > 0) {
+    penalties.push({
+      label: 'Data flow',
+      points: flowPenalty,
+      reason: `${analysis.dataFlow.sharedMutables.length} shared mutable(s), ${analysis.dataFlow.mutableSingletons.length} mutable singleton(s)`,
+    });
+  }
+
+  const explanation: ScoreExplanation = {
+    components,
+    totalWeight,
+    weightedSum: Math.round(weightedSum * 10) / 10,
+    penalties,
+    afterPenalty,
+    ceiling: {
+      value: ceiling,
+      totalFiles: scan.files.totalFiles,
+      applied: afterPenalty > ceiling,
+    },
+    finalScore: score,
+    grade,
+    calibration: {
+      framework: fwkName,
+      source: fwk.source,
+      sampleSize: fwk.sampleSize,
+      lowConfidence: fwk.source === 'fallback' || (fwk.sampleSize ?? 0) < 15,
+    },
+  };
 
   return {
-    health: { score, grade: gradeFromScore(score, fwkName) },
+    health: { score, grade },
     breakdown: {
       fileSize: fileSizeScore,
       criticalFiles: criticalScore,
@@ -372,5 +447,6 @@ export function calculateHealthScore(
       modularity: modScore,
       tests: testsScore,
     },
+    explanation,
   };
 }

@@ -9,6 +9,7 @@ import * as Scanner from '../src/core/scanner/index.js';
 import * as Analyzer from '../src/core/analyzer/index.js';
 import * as ScoreEngine from '../src/core/scoring/index.js';
 import * as Reporter from '../src/core/report/index.js';
+import { explain as explainScore } from '../src/core/report/explainReport.js';
 import { runAudit } from '../src/core/analyzer/auditAnalyzer.js';
 import { generateMarkdownReport, AuditApiResponse } from '../src/core/audit/markdownReport.js';
 import { ensureGitignore } from '../src/core/audit/gitignore.js';
@@ -386,11 +387,12 @@ program
   .command('scan [projectPath]')
   .description('Analyze the architectural health of a frontend project')
   .option('--json', 'Output results as JSON')
+  .option('--explain', 'Print the full score calculation (component math, anchors, penalties, ceiling)')
   .option('--no-premium', 'Skip the premium insights request (logged-in users only)')
   .action(
     async (
       projectPath?: string,
-      opts?: { json?: boolean; premium?: boolean }
+      opts?: { json?: boolean; explain?: boolean; premium?: boolean }
     ) => {
       const targetPath = path.resolve(projectPath ?? '.');
       const token = readValidToken();
@@ -475,6 +477,10 @@ program
 
       const user = getSignedInUser();
       Reporter.display(ctx.scan, ctx.analysis, ctx.score, ctx.premium, user ?? undefined);
+
+      if (opts?.explain) {
+        explainScore(ctx.score.explanation);
+      }
     }
   );
 
