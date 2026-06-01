@@ -15,6 +15,13 @@ import { techDebtPenalty } from '../analyzer/techDebtAnalyzer.js';
 import { dataFlowPenalty } from '../analyzer/dataFlowAnalyzer.js';
 import { getThresholdsForFramework } from '../../utils/calibrationLoader.js';
 
+// v1.5 — Scoring formula version. Bumped whenever weights, curves, grade
+// thresholds, or penalties change in a way that shifts scores. Stamped into
+// local history snapshots so a delta across a formula change can be flagged
+// as "not directly comparable" instead of reported as a real regression.
+// Tracks the SCORING.md semver minor; not the package version.
+export const SCORING_VERSION = '1.5';
+
 // ===== Continuous scoring curves =====
 //
 // Every component scores in [0..100]. The curves are continuous (no cliffs)
