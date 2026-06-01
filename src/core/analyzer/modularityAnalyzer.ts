@@ -1,6 +1,6 @@
-import { Project, Node, SyntaxKind } from 'ts-morph';
-import path from 'path';
+import { Node, SyntaxKind, SourceFile } from 'ts-morph';
 import { ModularityResult, ModularityViolation } from '../../types/index.js';
+import { AnalysisContext, resolveContext } from './context.js';
 
 // Heuristics: UI files should not import from service/api layers directly in large numbers
 const UI_PATTERNS = ['/components/', '/pages/', '/app/', '/views/'];
@@ -37,7 +37,7 @@ function looksLikeStore(filePath: string): boolean {
  * is NOT used elsewhere in the component body. We flag that as "prop drilling
  * suspect". Not a full call-graph analysis — catches the obvious pattern.
  */
-function countPropDrillingSuspects(sourceFile: ReturnType<Project['addSourceFileAtPath']>): number {
+function countPropDrillingSuspects(sourceFile: SourceFile): number {
   let count = 0;
 
   sourceFile.forEachDescendant((node) => {
@@ -109,16 +109,11 @@ function countPropDrillingSuspects(sourceFile: ReturnType<Project['addSourceFile
   return count;
 }
 
-export async function analyzeModularity(projectPath: string): Promise<ModularityResult> {
-  const project = new Project({ skipAddingFilesFromTsConfig: true });
-
-  project.addSourceFilesAtPaths([
-    path.join(projectPath, '**/*.ts'),
-    path.join(projectPath, '**/*.tsx'),
-    `!${path.join(projectPath, '**/node_modules/**')}`,
-    `!${path.join(projectPath, '**/dist/**')}`,
-    `!${path.join(projectPath, '**/.next/**')}`,
-  ]);
+export async function analyzeModularity(
+  projectPath: string,
+  ctx?: AnalysisContext
+): Promise<ModularityResult> {
+  const { sourceFiles, rel: relPath } = resolveContext(projectPath, ctx);
 
   const issues: string[] = [];
   const violations: ModularityViolation[] = [];
@@ -136,25 +131,25 @@ export async function analyzeModularity(projectPath: string): Promise<Modularity
   // detect over-consumed contexts. Fan-in = how many other files import
   // this file.
   const fanIn = new Map<string, number>();
-  for (const sourceFile of project.getSourceFiles()) {
+  for (const sourceFile of sourceFiles) {
     for (const imp of sourceFile.getImportDeclarations()) {
       if (imp.isTypeOnly()) continue;
       const resolved = imp.getModuleSpecifierSourceFile();
       if (!resolved) continue;
-      const rel = path.relative(projectPath, resolved.getFilePath()).replace(/\\/g, '/');
-      fanIn.set(rel, (fanIn.get(rel) ?? 0) + 1);
+      const r = relPath(resolved.getFilePath());
+      fanIn.set(r, (fanIn.get(r) ?? 0) + 1);
     }
   }
 
-  for (const sourceFile of project.getSourceFiles()) {
-    const filePath = path.relative(projectPath, sourceFile.getFilePath()).replace(/\\/g, '/');
+  for (const sourceFile of sourceFiles) {
+    const filePath = relPath(sourceFile.getFilePath());
 
     const localImports = sourceFile
       .getImportDeclarations()
       .filter((i) => !i.isTypeOnly())
       .map((i) => i.getModuleSpecifierSourceFile()?.getFilePath() ?? '')
       .filter(Boolean)
-      .map((p) => path.relative(projectPath, p).replace(/\\/g, '/'));
+      .map((p) => relPath(p));
 
     if (isUiFile(filePath)) {
       totalUiFiles++;
@@ -271,6 +266,13 @@ export async function analyzeModularity(projectPath: string): Promise<Modularity
   score -= godStoreCount * 15;
   score -= contextOverconsumedCount * 10;
   score -= Math.floor(propDrillingCount / 5) * 5;
+
+  // Stable order so the violations list (and its serialization) is identical
+  // across runs and OSes — they're pushed in source-file traversal order,
+  // which depends on the glob.
+  violations.sort(
+    (a, b) => a.file.localeCompare(b.file) || a.type.localeCompare(b.type)
+  );
 
   return {
     modularityScore: applicable ? Math.round(Math.max(0, score)) : null,

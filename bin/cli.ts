@@ -9,6 +9,16 @@ import * as Scanner from '../src/core/scanner/index.js';
 import * as Analyzer from '../src/core/analyzer/index.js';
 import * as ScoreEngine from '../src/core/scoring/index.js';
 import * as Reporter from '../src/core/report/index.js';
+import { explain as explainScore } from '../src/core/report/explainReport.js';
+import {
+  buildSnapshot,
+  saveSnapshot,
+  readHistory,
+  previousSnapshot,
+  findSnapshot,
+} from '../src/core/history/snapshotStore.js';
+import { deltaLine, renderHistory } from '../src/core/history/historyReport.js';
+import { SCORING_VERSION } from '../src/core/scoring/healthScore.js';
 import { runAudit } from '../src/core/analyzer/auditAnalyzer.js';
 import { generateMarkdownReport, AuditApiResponse } from '../src/core/audit/markdownReport.js';
 import { ensureGitignore } from '../src/core/audit/gitignore.js';
@@ -386,11 +396,14 @@ program
   .command('scan [projectPath]')
   .description('Analyze the architectural health of a frontend project')
   .option('--json', 'Output results as JSON')
+  .option('--explain', 'Print the full score calculation (component math, anchors, penalties, ceiling)')
+  .option('--baseline <ref>', 'Compare against a pinned snapshot (history id or commit hash) instead of the previous scan')
+  .option('--no-history', 'Do not record a local history snapshot for this scan')
   .option('--no-premium', 'Skip the premium insights request (logged-in users only)')
   .action(
     async (
       projectPath?: string,
-      opts?: { json?: boolean; premium?: boolean }
+      opts?: { json?: boolean; explain?: boolean; baseline?: string; history?: boolean; premium?: boolean }
     ) => {
       const targetPath = path.resolve(projectPath ?? '.');
       const token = readValidToken();
@@ -457,6 +470,37 @@ program
         process.exit(1);
       }
 
+      // v1.5 — Local history. Capture the comparison point BEFORE writing this
+      // scan's snapshot so we never diff a scan against itself. --baseline pins
+      // a specific snapshot; otherwise we use the most recent prior one.
+      const now = Date.now();
+      const prevSnapshot = opts?.baseline
+        ? findSnapshot(targetPath, opts.baseline)
+        : previousSnapshot(targetPath, now);
+      if (opts?.baseline && !prevSnapshot) {
+        console.error(
+          chalk.yellow(`\n⚠ No snapshot found for baseline "${opts.baseline}" — showing score without a delta.`)
+        );
+      }
+
+      // Record this scan (best-effort — a history write must never fail a scan).
+      let snapshotSaved = false;
+      if (opts?.history !== false) {
+        try {
+          const snap = buildSnapshot(
+            targetPath,
+            ctx.score,
+            ctx.scan.framework.framework,
+            ctx.scan.files.totalFiles,
+            now
+          );
+          saveSnapshot(targetPath, snap);
+          snapshotSaved = true;
+        } catch {
+          // Non-fatal: e.g. read-only filesystem. Scan output still shown.
+        }
+      }
+
       if (opts?.json) {
         console.log(
           JSON.stringify(
@@ -465,6 +509,14 @@ program
               analysis: ctx.analysis,
               score: ctx.score,
               premium: ctx.premium ?? null,
+              history: {
+                recorded: snapshotSaved,
+                previous: prevSnapshot,
+                delta: prevSnapshot ? ctx.score.health.score - prevSnapshot.score : null,
+                comparable: prevSnapshot
+                  ? prevSnapshot.scoringVersion === SCORING_VERSION
+                  : null,
+              },
             },
             null,
             2
@@ -475,8 +527,26 @@ program
 
       const user = getSignedInUser();
       Reporter.display(ctx.scan, ctx.analysis, ctx.score, ctx.premium, user ?? undefined);
+
+      // Offline trend: the delta the DESIGN.md promised, with no account.
+      if (prevSnapshot) {
+        console.log(deltaLine(ctx.score.health.score, prevSnapshot, SCORING_VERSION));
+      }
+
+      if (opts?.explain) {
+        explainScore(ctx.score.explanation);
+      }
     }
   );
+
+program
+  .command('history [projectPath]')
+  .description('Show the local score history for a project (offline — no account needed)')
+  .action((projectPath?: string) => {
+    const targetPath = path.resolve(projectPath ?? '.');
+    const snaps = readHistory(targetPath);
+    renderHistory(snaps);
+  });
 
 program
   .command('audit [projectPath]')

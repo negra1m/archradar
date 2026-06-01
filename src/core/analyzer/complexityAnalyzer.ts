@@ -1,7 +1,7 @@
-import { Project, SyntaxKind, Node } from 'ts-morph';
-import path from 'path';
+import { SyntaxKind, Node } from 'ts-morph';
 import { ComplexityResult } from '../../types/index.js';
 import { topK } from '../../utils/topK.js';
+import { AnalysisContext, resolveContext } from './context.js';
 
 /**
  * Single source of truth for the "complexity hotspot" threshold.
@@ -125,16 +125,11 @@ function getFunctionName(node: Node): string {
   return '<anonymous>';
 }
 
-export async function analyzeComplexity(projectPath: string): Promise<ComplexityResult> {
-  const project = new Project({ skipAddingFilesFromTsConfig: true });
-
-  project.addSourceFilesAtPaths([
-    path.join(projectPath, '**/*.ts'),
-    path.join(projectPath, '**/*.tsx'),
-    `!${path.join(projectPath, '**/node_modules/**')}`,
-    `!${path.join(projectPath, '**/dist/**')}`,
-    `!${path.join(projectPath, '**/.next/**')}`,
-  ]);
+export async function analyzeComplexity(
+  projectPath: string,
+  ctx?: AnalysisContext
+): Promise<ComplexityResult> {
+  const { sourceFiles, rel } = resolveContext(projectPath, ctx);
 
   const hotspots: ComplexityResult['hotspots'] = [];
   const allComplexities: number[] = [];
@@ -142,8 +137,10 @@ export async function analyzeComplexity(projectPath: string): Promise<Complexity
   let functionCount = 0;
   let maxFunctionLines = 0;
 
-  for (const sourceFile of project.getSourceFiles()) {
-    const filePath = path.relative(projectPath, sourceFile.getFilePath());
+  for (const sourceFile of sourceFiles) {
+    // Normalize to POSIX separators so hotspot paths are identical on Windows
+    // and Linux — otherwise the report and history snapshots differ by OS.
+    const filePath = rel(sourceFile.getFilePath());
 
     const functions = [
       ...sourceFile.getFunctions(),
@@ -178,8 +175,14 @@ export async function analyzeComplexity(projectPath: string): Promise<Complexity
     }
   }
 
-  const top10 = topK(hotspots, 10, (h) => h.complexity);
-  top10.sort((a, b) => b.complexity - a.complexity);
+  // Total order: complexity desc, ties broken by file then function name, so
+  // the top-10 is identical across runs and across OSes.
+  const top10 = topK(
+    hotspots,
+    10,
+    (h) => h.complexity,
+    (a, b) => a.file.localeCompare(b.file) || a.function.localeCompare(b.function)
+  );
 
   // p95 gives a truer picture of the codebase's cognitive load than the
   // average alone, which is pulled down by trivial functions. Reported in

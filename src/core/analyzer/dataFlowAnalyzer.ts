@@ -28,8 +28,8 @@
 // See DESIGN.md for the honest limitation: for rigorous data flow, use
 // @typescript-eslint rules or a real static analyzer.
 
-import { Project, Node, SyntaxKind, VariableDeclarationKind } from 'ts-morph';
-import path from 'path';
+import { Node, SyntaxKind, VariableDeclarationKind, SourceFile } from 'ts-morph';
+import { AnalysisContext, resolveContext } from './context.js';
 
 export interface SharedMutable {
   file: string;
@@ -66,7 +66,7 @@ const EMPTY: DataFlowResult = {
  * Detect shared mutable exports in a single source file.
  */
 function collectSharedMutables(
-  sourceFile: ReturnType<Project['addSourceFileAtPath']>,
+  sourceFile: SourceFile,
   relPath: string
 ): SharedMutable[] {
   const out: SharedMutable[] = [];
@@ -97,7 +97,7 @@ function collectSharedMutables(
  * prevents reassignment, not mutation.
  */
 function collectMutableSingletons(
-  sourceFile: ReturnType<Project['addSourceFileAtPath']>,
+  sourceFile: SourceFile,
   relPath: string
 ): MutableSingleton[] {
   const out: MutableSingleton[] = [];
@@ -141,7 +141,7 @@ function collectMutableSingletons(
  * mutations, side effects. If the file is imported by ≥3 others, flag it.
  */
 function collectImportTimeSideEffects(
-  sourceFile: ReturnType<Project['addSourceFileAtPath']>,
+  sourceFile: SourceFile,
   relPath: string,
   fanIn: number
 ): ImportTimeSideEffect[] {
@@ -194,30 +194,31 @@ function collectImportTimeSideEffects(
   return out;
 }
 
-export async function analyzeDataFlow(projectPath: string): Promise<DataFlowResult> {
-  let project: Project;
+export async function analyzeDataFlow(
+  projectPath: string,
+  ctx?: AnalysisContext
+): Promise<DataFlowResult> {
+  // Parse failures degrade gracefully to an empty result rather than failing
+  // the whole scan (e.g. a project with unparseable syntax).
+  let sourceFiles: AnalysisContext['sourceFiles'];
+  let rel: AnalysisContext['rel'];
   try {
-    project = new Project({ skipAddingFilesFromTsConfig: true });
-    project.addSourceFilesAtPaths([
-      path.join(projectPath, '**/*.ts'),
-      path.join(projectPath, '**/*.tsx'),
-      `!${path.join(projectPath, '**/node_modules/**')}`,
-      `!${path.join(projectPath, '**/dist/**')}`,
-      `!${path.join(projectPath, '**/.next/**')}`,
-    ]);
+    const resolved = resolveContext(projectPath, ctx);
+    sourceFiles = resolved.sourceFiles;
+    rel = resolved.rel;
   } catch {
     return EMPTY;
   }
 
   // Pre-pass: fan-in map (for side-effect flagging).
   const fanIn = new Map<string, number>();
-  for (const sourceFile of project.getSourceFiles()) {
+  for (const sourceFile of sourceFiles) {
     for (const imp of sourceFile.getImportDeclarations()) {
       if (imp.isTypeOnly()) continue;
       const resolved = imp.getModuleSpecifierSourceFile();
       if (!resolved) continue;
-      const rel = path.relative(projectPath, resolved.getFilePath()).replace(/\\/g, '/');
-      fanIn.set(rel, (fanIn.get(rel) ?? 0) + 1);
+      const r = rel(resolved.getFilePath());
+      fanIn.set(r, (fanIn.get(r) ?? 0) + 1);
     }
   }
 
@@ -225,8 +226,8 @@ export async function analyzeDataFlow(projectPath: string): Promise<DataFlowResu
   const importTimeSideEffects: ImportTimeSideEffect[] = [];
   const mutableSingletons: MutableSingleton[] = [];
 
-  for (const sourceFile of project.getSourceFiles()) {
-    const relPath = path.relative(projectPath, sourceFile.getFilePath()).replace(/\\/g, '/');
+  for (const sourceFile of sourceFiles) {
+    const relPath = rel(sourceFile.getFilePath());
 
     sharedMutables.push(...collectSharedMutables(sourceFile, relPath));
     mutableSingletons.push(...collectMutableSingletons(sourceFile, relPath));
@@ -234,6 +235,14 @@ export async function analyzeDataFlow(projectPath: string): Promise<DataFlowResu
       ...collectImportTimeSideEffects(sourceFile, relPath, fanIn.get(relPath) ?? 0)
     );
   }
+
+  // Stable order so the output (and the "worst offender" shown as [0]) is
+  // identical across runs and OSes, not dependent on glob traversal order.
+  sharedMutables.sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name));
+  mutableSingletons.sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name));
+  importTimeSideEffects.sort(
+    (a, b) => a.file.localeCompare(b.file) || a.description.localeCompare(b.description)
+  );
 
   return { sharedMutables, importTimeSideEffects, mutableSingletons };
 }

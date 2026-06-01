@@ -214,6 +214,68 @@ export interface ScoreResult {
   health: HealthScore;
   recommendations: string[];
   breakdown: ScoreBreakdown;
+  /**
+   * v1.5 — full audit trail of how the score was computed. Source of truth
+   * for `--explain` and the enriched `--json` output. Lets a user (or CI)
+   * verify the headline score by re-doing the arithmetic. The identity
+   *   min(weightedSum - penalties, ceiling) === health.score
+   * must always hold (see tests/explain.test.ts).
+   */
+  explanation: ScoreExplanation;
+}
+
+/**
+ * v1.5 — One row of the weighted-average calculation. `contribution` is the
+ * exact point value this component added to the weighted sum:
+ *   contribution = value * (weight / totalWeight)
+ * `anchor` is the calibration source for the threshold this component scored
+ * against (e.g. "p90 React coupling = 4"), or null for components with no
+ * per-framework anchor (fileSize, structure, dependencies, tests).
+ */
+export interface ScoreComponentExplanation {
+  key: keyof ScoreBreakdown;
+  label: string;
+  value: number;
+  weight: number;
+  /** value * (weight / totalWeight) — actual points added to the weighted sum. */
+  contribution: number;
+  anchor: string | null;
+}
+
+/** v1.5 — A flat penalty applied after the weighted average (tech debt, data flow). */
+export interface ScorePenaltyExplanation {
+  label: string;
+  points: number;
+  reason: string;
+}
+
+export interface ScoreExplanation {
+  components: ScoreComponentExplanation[];
+  /** Sum of (weight/totalWeight) across active components — always 1.0 after renormalization. */
+  totalWeight: number;
+  /** Weighted average before penalties and ceiling. */
+  weightedSum: number;
+  penalties: ScorePenaltyExplanation[];
+  /** Score after subtracting penalties from weightedSum, floored at 0. */
+  afterPenalty: number;
+  ceiling: {
+    value: number;
+    totalFiles: number;
+    /** True when the ceiling actually lowered the score. */
+    applied: boolean;
+  };
+  /** Final score === breakdown-derived calculation. Mirrors health.score. */
+  finalScore: number;
+  grade: Grade;
+  /** Calibration provenance for the framework this project was scored against. */
+  calibration: {
+    framework: string;
+    source: 'community' | 'fallback';
+    /** Sample size (N) when known from the community calibration, else null. */
+    sampleSize: number | null;
+    /** True when N is too small (or fallback) to fully trust the anchors. */
+    lowConfidence: boolean;
+  };
 }
 
 export interface ScoreBreakdown {
