@@ -27,6 +27,12 @@ export interface FrameworkThresholds {
   complexity: number;
   source: 'community' | 'fallback';
   /**
+   * v1.5 — calibration sample size (N) for this framework. Null for the
+   * hardcoded fallback (no community data). Exposed so `--explain` and
+   * `archradar calibration` can be honest about confidence.
+   */
+  sampleSize: number | null;
+  /**
    * v1.4 Sprint 9 — quantile-derived grade thresholds. When present, the
    * scorer uses these instead of the hardcoded A>=85, B>=70, etc.
    * Null when the calibration sample didn't include grade data (fall back
@@ -39,6 +45,7 @@ const HARDCODED_FALLBACK: FrameworkThresholds = {
   highCoupling: 12,
   complexity: 10,
   source: 'fallback',
+  sampleSize: null,
 };
 
 // CJS-compatible path resolution. The compiled file lives at
@@ -162,6 +169,7 @@ function loadCalibration(): Map<string, FrameworkThresholds> | null {
       highCoupling: highCoupling > 0 ? highCoupling : HARDCODED_FALLBACK.highCoupling,
       complexity: complexity > 0 ? complexity : HARDCODED_FALLBACK.complexity,
       source: 'community',
+      sampleSize,
       gradeThresholds: hasGrades ? { A: gA, B: gB, C: gC, D: gD } : undefined,
     });
   }

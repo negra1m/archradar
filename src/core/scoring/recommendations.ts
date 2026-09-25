@@ -1,19 +1,36 @@
 import { ScanResult, AnalysisResult } from '../../types/index.js';
 import { topK } from '../../utils/topK.js';
 import { maskPath } from '../../utils/pathMask.js';
+import { getThresholdsForFramework } from '../../utils/calibrationLoader.js';
 
 interface Recommendation {
   priority: number;
   message: string;
 }
 
+// v1.5 — Render up to `n` "path (detail)" locations so a recommendation
+// points at the actual files, not just a count. "X files above 300 lines"
+// becomes "...worst: admin/page.tsx (1141), dashboard/page.tsx (820)".
+function topLocations<T>(
+  items: T[],
+  n: number,
+  fmt: (item: T) => string
+): string {
+  const shown = items.slice(0, n).map(fmt);
+  const extra = items.length - shown.length;
+  return shown.join(', ') + (extra > 0 ? `, +${extra} more` : '');
+}
+
 export function generateRecommendations(scan: ScanResult, analysis: AnalysisResult): string[] {
   const recs: Recommendation[] = [];
 
   if (scan.files.criticalFiles.length > 0) {
+    // Sort by size so the worst offenders are named first.
+    const worst = [...scan.files.criticalFiles].sort((a, b) => b.lines - a.lines);
+    const locs = topLocations(worst, 3, (f) => `${maskPath(f.path)} (${f.lines} lines)`);
     recs.push({
       priority: 1,
-      message: `${scan.files.criticalFiles.length} file(s) above 300 lines detected. Consider splitting into smaller modules.`,
+      message: `${scan.files.criticalFiles.length} file(s) above 300 lines. Split the worst first: ${locs}.`,
     });
   }
 
@@ -45,10 +62,25 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
     });
   }
 
-  if (analysis.coupling.avgCoupling > 15) {
+  // v1.5 — Anchor the coupling recommendation to the per-framework p90 and
+  // name the worst files. "avg 16" is meaningless without "p90 React is 4".
+  const fwk = getThresholdsForFramework(scan.framework.framework);
+  const couplingAnchor = fwk.highCoupling;
+  if (analysis.coupling.highCouplingFiles.length > 0) {
+    const worst = [...analysis.coupling.highCouplingFiles].sort((a, b) => b.imports - a.imports);
+    const locs = topLocations(worst, 3, (f) => `${maskPath(f.file)} (${f.imports})`);
+    const anchorNote =
+      fwk.source === 'community'
+        ? `p90 for ${scan.framework.framework} is ${couplingAnchor}`
+        : `typical threshold is ${couplingAnchor}`;
     recs.push({
       priority: 1,
-      message: `High coupling (avg ${analysis.coupling.avgCoupling} imports/file). Reduce inter-module dependencies.`,
+      message: `${analysis.coupling.highCouplingFiles.length} file(s) over the coupling anchor (${anchorNote} imports). Worst: ${locs}. Reduce inter-module dependencies.`,
+    });
+  } else if (analysis.coupling.avgCoupling > 15) {
+    recs.push({
+      priority: 1,
+      message: `High average coupling (${analysis.coupling.avgCoupling} imports/file). Reduce inter-module dependencies.`,
     });
   }
 
@@ -78,9 +110,13 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
 
   if (analysis.circularDeps.hasCycles) {
     const total = analysis.circularDeps.allCycles.length;
+    // Name the shortest cycle — it's usually the easiest to break and the
+    // clearest illustration of the problem.
+    const shortest = [...analysis.circularDeps.allCycles].sort((a, b) => a.length - b.length)[0];
+    const sample = shortest ? shortest.map(maskPath).join(' → ') : '';
     recs.push({
       priority: 1,
-      message: `${total} circular dependency(ies) detected. Restructure imports to break the cycles.`,
+      message: `${total} circular dependency(ies). Start with the shortest: ${sample}. Restructure imports to break the cycle.`,
     });
   }
 

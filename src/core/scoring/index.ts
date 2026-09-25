@@ -3,8 +3,8 @@ import { calculateHealthScore } from './healthScore.js';
 import { generateRecommendations } from './recommendations.js';
 
 export function run(scan: ScanResult, analysis: AnalysisResult): ScoreResult {
-  const { health, breakdown } = calculateHealthScore(scan, analysis);
+  const { health, breakdown, explanation } = calculateHealthScore(scan, analysis);
   const recommendations = generateRecommendations(scan, analysis);
 
-  return { health, recommendations, breakdown };
+  return { health, recommendations, breakdown, explanation };
 }
